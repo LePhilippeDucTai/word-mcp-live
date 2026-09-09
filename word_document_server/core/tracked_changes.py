@@ -1,179 +1,138 @@
-"""
-Core tracked changes functionality for Word documents.
+"""Tracked changes for the cross-platform tools, delegated to the engine.
 
-Implements insertion, deletion, and replacement of text as tracked changes
-using lxml to manipulate the underlying OOXML structure. python-docx doesn't
-support tracked changes natively, so we work directly with the XML.
+This module is the thin adapter between ``tools/tracked_changes_tools.py`` --
+whose function names, parameters and JSON shapes are fixed -- and
+:mod:`word_document_server.engine.revisions`, which owns ``w:ins`` and
+``w:del``.  It locates text, converts what it finds into engine calls and
+formats the result; it never touches XML itself.
 
-Reference: Anthropic docx skill SKILL.md tracked changes patterns.
+What the move to the engine fixes
+---------------------------------
+The previous implementation opened the ``.docx`` with :mod:`zipfile`, rewrote
+``word/document.xml`` in place and carried its own copies of the run helpers.
+Three defects came with that, and none of them can be written here any more:
+
+* ``track_replace_in_doc`` re-searched the paragraph after every replacement,
+  including the text it had just inserted, so ``"Risk" -> "Risk Risk"`` never
+  returned.  Matches are now collected **once**, before any mutation, and
+  applied right to left so that the offsets of the matches still pending are
+  never shifted by the ones already applied.
+* the splice reinserted the surviving fragments into the parent of the *first*
+  matched run, which is the wrong element as soon as a match spans a
+  ``w:hyperlink`` boundary, and rebuilt every fragment with the first run's
+  ``w:rPr``.  :func:`~word_document_server.engine.ranges.resolve` splits runs in
+  place instead, so each fragment keeps its own properties.
+* the search ran over raw ``w:t`` text and could therefore match, and re-delete,
+  text already hidden under a ``w:del``.
+  :func:`~word_document_server.engine.find.find` reads the *visible* text of
+  each paragraph, so deleted content is out of reach by construction.
+
+Saving goes through :meth:`~word_document_server.engine.package.DocxPackage.save`,
+which serialises to memory and writes atomically: an interrupted call leaves the
+original file intact instead of a truncated archive.
+
+Contract of the returned dictionaries
+-------------------------------------
+Unchanged, key for key.  A recording function returns ``success``/``error`` when
+the text is not found and ``success`` plus its own counter (``replacements``,
+``insertions``, ``deletions``) and ``message`` otherwise.  Only the free-text
+``message`` gained detail: it now names what an apply left in place instead of
+staying silent about it.
+
+Failures the engine refuses on purpose -- a range that would cut a field, an
+inserted paragraph mark with no paragraph to merge into -- are raised as
+:class:`~word_document_server.engine.errors.EngineError`, not swallowed.  The
+tool layer already turns any exception into ``{"success": false, "error": ...}``,
+and nothing is written when one is raised: every function here saves once, at
+the end, after all of its edits have succeeded.
+
+Scope of each function
+----------------------
+Recording searches the body only, as it always did.  Listing and applying now
+cover **every story** -- headers, footers, footnotes, endnotes -- because
+:mod:`~word_document_server.engine.revisions` does; a revision in a header used
+to be invisible to ``list_tracked_changes`` and untouched by ``accept``, which
+reported a document fully applied while it was not.
 """
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from word_document_server.defaults import DEFAULT_AUTHOR
 
-import copy
-import json
-import random
-import re
-import zipfile
-from datetime import datetime, timezone
-from io import BytesIO
-from pathlib import Path
-from typing import Optional
+# The V2 paragraph index has one definition in the engine, and it is find's.
+# Re-deriving it here to build the paragraph contexts of a listing would create a
+# second index space that merely looks like the one `list_revisions` reports.
+from word_document_server.engine.find import _v2_index_map, find, iter_paragraphs
+from word_document_server.engine.package import DocxPackage
+from word_document_server.engine.ranges import resolve
+from word_document_server.engine.revisions import (
+    SUPPORTED_KINDS,
+    accept,
+    list_revisions,
+    reject,
+    tracked_delete,
+    tracked_insert,
+    tracked_replace,
+)
+from word_document_server.engine.textmodel import visible_text
 
-from lxml import etree
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
-# OOXML namespaces
-WORD_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
-NSMAP = {"w": WORD_NS}
+    from word_document_server.engine.find import Match
+    from word_document_server.engine.revisions import Revision
 
-# Qualified name helpers
-W = lambda tag: f"{{{WORD_NS}}}{tag}"
+__all__ = [
+    "accept_tracked_changes_in_doc",
+    "list_tracked_changes_in_doc",
+    "reject_tracked_changes_in_doc",
+    "track_delete_in_doc",
+    "track_insert_in_doc",
+    "track_replace_in_doc",
+]
 
+#: Characters of paragraph text reported in ``paragraph_context``.
+_CONTEXT_LIMIT = 100
 
-def _generate_id(root: etree._Element) -> int:
-    """Generate a unique w:id by finding max existing id + 1."""
-    max_id = 0
-    for elem in root.iter():
-        val = elem.get(W("id"))
-        if val is not None:
-            try:
-                max_id = max(max_id, int(val))
-            except ValueError:
-                pass
-    return max_id + 1
-
-
-def _now_iso() -> str:
-    """Return current UTC timestamp in OOXML format."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def _get_run_text(run: etree._Element) -> str:
-    """Extract all text from a run's <w:t> elements."""
-    parts = []
-    for t in run.findall(W("t")):
-        if t.text:
-            parts.append(t.text)
-    return "".join(parts)
+#: Revision kinds reported as insertions and as deletions by
+#: :func:`list_tracked_changes_in_doc`.  Exactly what the previous
+#: ``root.iter(w:ins)`` / ``root.iter(w:del)`` scan reached: a paragraph-mark
+#: revision lives in ``w:pPr/w:rPr`` and was matched by it too.  The four other
+#: kinds the engine knows (``moveFrom``, ``moveTo``, ``rPrChange``,
+#: ``pPrChange``) were never reported and still are not.
+_INSERTION_KINDS = frozenset({"ins", "paragraph-mark-ins"})
+_DELETION_KINDS = frozenset({"del", "paragraph-mark-del"})
 
 
-def _get_run_rpr(run: etree._Element) -> Optional[etree._Element]:
-    """Get a deep copy of a run's <w:rPr> (formatting), or None."""
-    rpr = run.find(W("rPr"))
-    if rpr is not None:
-        return copy.deepcopy(rpr)
-    return None
+# --------------------------------------------------------------------------
+# Locating
+# --------------------------------------------------------------------------
 
 
-def _make_run(text: str, rpr: Optional[etree._Element] = None, is_del: bool = False) -> etree._Element:
-    """Create a <w:r> element with text and optional formatting.
+def _matches_last_first(pkg: DocxPackage, text: str) -> list[Match]:
+    """Every occurrence of `text` in the body, latest in the document first.
 
-    Args:
-        text: The text content
-        rpr: Optional formatting to copy
-        is_del: If True, use <w:delText> instead of <w:t>
+    Applying a revision to ``[start, end)`` changes the visible text from
+    `start` onwards and nothing before it, so working through the matches in
+    reverse document order keeps the offsets of the ones still pending exactly
+    as :func:`~word_document_server.engine.find.find` measured them.  This is
+    what replaces the previous re-search loop, and with it the case where the
+    replacement contained the text it replaced.
     """
-    r = etree.SubElement(etree.Element("dummy"), W("r"))
-    r.getparent().remove(r)  # Detach from dummy
-
-    if rpr is not None:
-        r.append(copy.deepcopy(rpr))
-
-    tag = W("delText") if is_del else W("t")
-    t = etree.SubElement(r, tag)
-    t.text = text
-    # Preserve whitespace
-    t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-
-    return r
+    return list(reversed(find(pkg, text)))
 
 
-def _load_document_xml(filepath: str) -> tuple[etree._Element, bytes]:
-    """Load and parse document.xml from a .docx file.
-
-    Returns:
-        Tuple of (parsed XML root, original zip bytes)
-    """
-    filepath = Path(filepath)
-    zip_bytes = filepath.read_bytes()
-
-    with zipfile.ZipFile(BytesIO(zip_bytes), "r") as zf:
-        doc_xml = zf.read("word/document.xml")
-
-    root = etree.fromstring(doc_xml)
-    return root, zip_bytes
+def _not_found(text: str) -> dict:
+    """The error dictionary a recording function returns for a missing text."""
+    return {"success": False, "error": f"Text not found: '{text}'"}
 
 
-def _save_document_xml(filepath: str, root: etree._Element, original_zip_bytes: bytes) -> None:
-    """Save modified document.xml back into the .docx zip."""
-    filepath = Path(filepath)
-    new_xml = etree.tostring(root, xml_declaration=True, encoding="UTF-8", standalone=True)
-
-    # Read original zip and replace document.xml
-    buffer = BytesIO()
-    with zipfile.ZipFile(BytesIO(original_zip_bytes), "r") as zf_in:
-        with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf_out:
-            for item in zf_in.infolist():
-                if item.filename == "word/document.xml":
-                    zf_out.writestr(item, new_xml)
-                else:
-                    zf_out.writestr(item, zf_in.read(item.filename))
-
-    filepath.write_bytes(buffer.getvalue())
-
-
-def _get_paragraphs(root: etree._Element) -> list[etree._Element]:
-    """Get all <w:p> elements from body."""
-    body = root.find(W("body"))
-    if body is None:
-        return []
-    return body.findall(f".//{W('p')}")
-
-
-def _paragraph_text(p: etree._Element) -> str:
-    """Get plain text of a paragraph."""
-    texts = []
-    for t in p.iter(W("t")):
-        if t.text:
-            texts.append(t.text)
-    return "".join(texts)
-
-
-def _find_text_in_paragraph(p: etree._Element, search_text: str) -> Optional[list[tuple]]:
-    """Find where search_text appears across runs in a paragraph.
-
-    Returns list of (run_element, start_offset, end_offset) tuples
-    that together contain the search_text, or None if not found.
-    """
-    runs = [r for r in p.findall(f".//{W('r')}") if r.find(W("t")) is not None]
-    if not runs:
-        return None
-
-    # Build a map: (run_index, char_offset_in_run) for each character
-    char_map = []
-    for ri, run in enumerate(runs):
-        text = _get_run_text(run)
-        for ci in range(len(text)):
-            char_map.append((ri, ci))
-
-    full_text = "".join(_get_run_text(r) for r in runs)
-    pos = full_text.find(search_text)
-    if pos == -1:
-        return None
-
-    # Map character positions back to runs
-    start_ri, start_ci = char_map[pos]
-    end_ri, end_ci = char_map[pos + len(search_text) - 1]
-
-    result = []
-    for ri in range(start_ri, end_ri + 1):
-        run = runs[ri]
-        run_text = _get_run_text(run)
-        s = start_ci if ri == start_ri else 0
-        e = end_ci + 1 if ri == end_ri else len(run_text)
-        result.append((run, s, e))
-
-    return result
+# --------------------------------------------------------------------------
+# Recording
+# --------------------------------------------------------------------------
 
 
 def track_replace_in_doc(
@@ -182,102 +141,46 @@ def track_replace_in_doc(
     new_text: str,
     author: str = DEFAULT_AUTHOR,
 ) -> dict:
-    """Replace text with tracked changes (delete old + insert new).
+    """Replace every occurrence of `old_text` with `new_text` as a revision.
+
+    Each occurrence becomes the ``<w:del>old</w:del><w:ins>new</w:ins>`` pair
+    Word writes, all of them stamped with one timestamp, as before.  Text hidden
+    under an existing ``w:del`` is not searched and therefore never replaced.
 
     Args:
-        filepath: Path to .docx file
-        old_text: Text to find and mark as deleted
-        new_text: Text to insert as replacement
-        author: Author name for the tracked change
+        filepath: path to the ``.docx`` file, rewritten in place on success.
+        old_text: text to mark as deleted; every occurrence in the body.
+        new_text: replacement text, inserted right after the deleted run.  An
+            empty string makes this a plain tracked deletion.
+        author: ``w:author`` of both revisions.
 
     Returns:
-        Dict with success status and details
+        ``{"success": False, "error": ...}`` when `old_text` is nowhere in the
+        body, otherwise ``{"success": True, "replacements": n, "message": ...}``.
+
+    Raises:
+        EngineError: if a range cannot be replaced -- it cuts a field, or
+            swallows an image.  The file is left untouched.
     """
-    root, zip_bytes = _load_document_xml(filepath)
-    timestamp = _now_iso()
-    replacements = 0
+    pkg = DocxPackage.open(filepath)
+    matches = _matches_last_first(pkg, old_text)
+    if not matches:
+        return _not_found(old_text)
 
-    for p in _get_paragraphs(root):
-        # Keep searching in the same paragraph until no more matches
-        while True:
-            match = _find_text_in_paragraph(p, old_text)
-            if match is None:
-                break
+    stamp = datetime.now(UTC)
+    for match in matches:
+        tracked_replace(
+            pkg, match.paragraph, match.start, match.end, new_text, author, stamp
+        )
 
-            next_id = _generate_id(root)
-
-            # Get formatting from the first matched run
-            first_run = match[0][0]
-            rpr = _get_run_rpr(first_run)
-
-            # Build the replacement elements
-            del_elem = etree.Element(W("del"))
-            del_elem.set(W("id"), str(next_id))
-            del_elem.set(W("author"), author)
-            del_elem.set(W("date"), timestamp)
-            del_run = _make_run(old_text, rpr, is_del=True)
-            del_elem.append(del_run)
-
-            ins_elem = etree.Element(W("ins"))
-            ins_elem.set(W("id"), str(next_id + 1))
-            ins_elem.set(W("author"), author)
-            ins_elem.set(W("date"), timestamp)
-            ins_run = _make_run(new_text, rpr, is_del=False)
-            ins_elem.append(ins_run)
-
-            # Now splice: we need to handle the matched runs
-            # Strategy: split first and last runs, remove middle runs,
-            # insert del+ins at the right position
-
-            first_run_elem, first_start, first_end = match[0]
-            last_run_elem, last_start, last_end = match[-1]
-            first_run_text = _get_run_text(first_run_elem)
-            last_run_text = _get_run_text(last_run_elem)
-
-            # Find the parent of the first run (should be <w:p> or a tracked change wrapper)
-            parent = first_run_elem.getparent()
-
-            # Text before the match in the first run
-            before_text = first_run_text[:first_start]
-            # Text after the match in the last run
-            after_text = last_run_text[last_end:]
-
-            # Determine insertion point (index of first matched run in parent)
-            insert_idx = list(parent).index(first_run_elem)
-
-            # Remove all matched runs
-            for run_elem, _, _ in match:
-                run_parent = run_elem.getparent()
-                if run_parent is not None:
-                    run_parent.remove(run_elem)
-
-            # Insert: before_text_run, del, ins, after_text_run
-            offset = 0
-            if before_text:
-                before_run = _make_run(before_text, rpr)
-                parent.insert(insert_idx + offset, before_run)
-                offset += 1
-
-            parent.insert(insert_idx + offset, del_elem)
-            offset += 1
-            parent.insert(insert_idx + offset, ins_elem)
-            offset += 1
-
-            if after_text:
-                after_rpr = _get_run_rpr(last_run_elem) if last_run_elem != first_run_elem else rpr
-                after_run = _make_run(after_text, after_rpr or rpr)
-                parent.insert(insert_idx + offset, after_run)
-
-            replacements += 1
-
-    if replacements == 0:
-        return {"success": False, "error": f"Text not found: '{old_text}'"}
-
-    _save_document_xml(filepath, root, zip_bytes)
+    pkg.save(filepath)
     return {
         "success": True,
-        "replacements": replacements,
-        "message": f"Replaced {replacements} occurrence(s) of '{old_text}' with '{new_text}' as tracked change by {author}",
+        "replacements": len(matches),
+        "message": (
+            f"Replaced {len(matches)} occurrence(s) of '{old_text}' with "
+            f"'{new_text}' as tracked change by {author}"
+        ),
     }
 
 
@@ -287,76 +190,43 @@ def track_insert_in_doc(
     insert_text: str,
     author: str = DEFAULT_AUTHOR,
 ) -> dict:
-    """Insert text after a specific string, marked as a tracked insertion.
+    """Insert `insert_text` right after the first occurrence of `after_text`.
+
+    First occurrence only, as before.  The inserted run takes its formatting
+    from the run on its left -- the end of the match -- and stays inside
+    whatever container that run sits in: a hyperlink is never split by an
+    insertion, the ``w:ins`` is pushed inside it instead.
 
     Args:
-        filepath: Path to .docx file
-        after_text: Text to search for; new text will be inserted right after this
-        insert_text: Text to insert
-        author: Author name for the tracked change
+        filepath: path to the ``.docx`` file, rewritten in place on success.
+        after_text: text to search for in the body.
+        insert_text: text to insert just past it.
+        author: ``w:author`` of the insertion.
 
     Returns:
-        Dict with success status and details
+        ``{"success": False, "error": ...}`` when `after_text` is nowhere in the
+        body, otherwise ``{"success": True, "insertions": 1, "message": ...}``.
+
+    Raises:
+        EngineError: if the insertion point is not writable -- inside a field
+            instruction, inside deleted content.  The file is left untouched.
     """
-    root, zip_bytes = _load_document_xml(filepath)
-    timestamp = _now_iso()
-    insertions = 0
+    pkg = DocxPackage.open(filepath)
+    matches = find(pkg, after_text, max_results=1)
+    if not matches:
+        return _not_found(after_text)
 
-    for p in _get_paragraphs(root):
-        match = _find_text_in_paragraph(p, after_text)
-        if match is None:
-            continue
+    match = matches[0]
+    tracked_insert(pkg, match.paragraph, match.end, insert_text, author)
 
-        next_id = _generate_id(root)
-
-        # Get formatting from the last matched run
-        last_run_elem, last_start, last_end = match[-1]
-        rpr = _get_run_rpr(last_run_elem)
-        last_run_text = _get_run_text(last_run_elem)
-
-        # Build insertion element
-        ins_elem = etree.Element(W("ins"))
-        ins_elem.set(W("id"), str(next_id))
-        ins_elem.set(W("author"), author)
-        ins_elem.set(W("date"), timestamp)
-        ins_run = _make_run(insert_text, rpr, is_del=False)
-        ins_elem.append(ins_run)
-
-        parent = last_run_elem.getparent()
-        run_idx = list(parent).index(last_run_elem)
-
-        # If match ends mid-run, split the run
-        after_match_text = last_run_text[last_end:]
-        if after_match_text:
-            # Truncate the current run to end at the match
-            before_match_text = last_run_text[:last_end]
-            for t in last_run_elem.findall(W("t")):
-                last_run_elem.remove(t)
-            new_t = etree.SubElement(last_run_elem, W("t"))
-            new_t.text = before_match_text
-            new_t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-
-            # Insert the tracked insertion
-            parent.insert(run_idx + 1, ins_elem)
-
-            # Insert remainder run after
-            remainder_run = _make_run(after_match_text, rpr)
-            parent.insert(run_idx + 2, remainder_run)
-        else:
-            # Match ends at run boundary, just insert after
-            parent.insert(run_idx + 1, ins_elem)
-
-        insertions += 1
-        break  # Only first occurrence
-
-    if insertions == 0:
-        return {"success": False, "error": f"Text not found: '{after_text}'"}
-
-    _save_document_xml(filepath, root, zip_bytes)
+    pkg.save(filepath)
     return {
         "success": True,
-        "insertions": insertions,
-        "message": f"Inserted '{insert_text}' after '{after_text}' as tracked change by {author}",
+        "insertions": 1,
+        "message": (
+            f"Inserted '{insert_text}' after '{after_text}' as tracked change "
+            f"by {author}"
+        ),
     }
 
 
@@ -365,145 +235,109 @@ def track_delete_in_doc(
     text: str,
     author: str = DEFAULT_AUTHOR,
 ) -> dict:
-    """Mark text as deleted (tracked deletion).
+    """Mark every occurrence of `text` as deleted.
+
+    The text is hidden, not removed: each covered run moves into a ``w:del``
+    where it stood and its ``w:t`` becomes ``w:delText``, so rejecting the
+    revision restores the document byte for byte.  Bookmarks and comment ranges
+    caught inside a deleted stretch are kept.
 
     Args:
-        filepath: Path to .docx file
-        text: Text to mark as deleted
-        author: Author name for the tracked change
+        filepath: path to the ``.docx`` file, rewritten in place on success.
+        text: text to mark as deleted; every occurrence in the body.
+        author: ``w:author`` of the deletions.
 
     Returns:
-        Dict with success status and details
+        ``{"success": False, "error": ...}`` when `text` is nowhere in the body,
+        otherwise ``{"success": True, "deletions": n, "message": ...}``.
+
+    Raises:
+        EngineError: if a range cannot be deleted -- it cuts a field, or
+            swallows an image.  The file is left untouched.
     """
-    root, zip_bytes = _load_document_xml(filepath)
-    timestamp = _now_iso()
-    deletions = 0
+    pkg = DocxPackage.open(filepath)
+    matches = _matches_last_first(pkg, text)
+    if not matches:
+        return _not_found(text)
 
-    for p in _get_paragraphs(root):
-        while True:
-            match = _find_text_in_paragraph(p, text)
-            if match is None:
-                break
+    stamp = datetime.now(UTC)
+    for match in matches:
+        pieces = resolve(match.paragraph, match.start, match.end, operation="delete")
+        tracked_delete(pkg, pieces, author, stamp)
 
-            next_id = _generate_id(root)
-
-            first_run_elem, first_start, first_end = match[0]
-            last_run_elem, last_start, last_end = match[-1]
-            rpr = _get_run_rpr(first_run_elem)
-            first_run_text = _get_run_text(first_run_elem)
-            last_run_text = _get_run_text(last_run_elem)
-
-            # Build deletion element
-            del_elem = etree.Element(W("del"))
-            del_elem.set(W("id"), str(next_id))
-            del_elem.set(W("author"), author)
-            del_elem.set(W("date"), timestamp)
-            del_run = _make_run(text, rpr, is_del=True)
-            del_elem.append(del_run)
-
-            parent = first_run_elem.getparent()
-            insert_idx = list(parent).index(first_run_elem)
-
-            before_text = first_run_text[:first_start]
-            after_text = last_run_text[last_end:]
-
-            # Remove matched runs
-            for run_elem, _, _ in match:
-                run_parent = run_elem.getparent()
-                if run_parent is not None:
-                    run_parent.remove(run_elem)
-
-            offset = 0
-            if before_text:
-                before_run = _make_run(before_text, rpr)
-                parent.insert(insert_idx + offset, before_run)
-                offset += 1
-
-            parent.insert(insert_idx + offset, del_elem)
-            offset += 1
-
-            if after_text:
-                after_rpr = _get_run_rpr(last_run_elem) if last_run_elem != first_run_elem else rpr
-                after_run = _make_run(after_text, after_rpr or rpr)
-                parent.insert(insert_idx + offset, after_run)
-
-            deletions += 1
-
-    if deletions == 0:
-        return {"success": False, "error": f"Text not found: '{text}'"}
-
-    _save_document_xml(filepath, root, zip_bytes)
+    pkg.save(filepath)
     return {
         "success": True,
-        "deletions": deletions,
-        "message": f"Marked {deletions} occurrence(s) of '{text}' as deleted by {author}",
+        "deletions": len(matches),
+        "message": (
+            f"Marked {len(matches)} occurrence(s) of '{text}' as deleted by {author}"
+        ),
+    }
+
+
+# --------------------------------------------------------------------------
+# Listing
+# --------------------------------------------------------------------------
+
+
+def _paragraph_texts(pkg: DocxPackage) -> dict[tuple[str, int], str]:
+    """Visible text of every V2-indexed paragraph, keyed as a revision names it.
+
+    :class:`~word_document_server.engine.revisions.Revision` is plain data and
+    holds no element, so the paragraph context of a listing is looked up by
+    ``(story, paragraph_index)``.  A paragraph outside the V2 index space -- in
+    a table cell, in a text box -- has no key here, and a revision inside one
+    therefore reports an empty context.
+    """
+    texts: dict[tuple[str, int], str] = {}
+    for story, root in pkg.stories():
+        for paragraph, index in _v2_index_map(iter_paragraphs(root)).items():
+            texts[(story, index)] = visible_text(paragraph)
+    return texts
+
+
+def _entry(revision: Revision, contexts: dict[tuple[str, int], str]) -> dict:
+    """One listing entry, in the shape the tool has always returned.
+
+    ``id`` stays a string, as it was when it was read straight off the ``w:id``
+    attribute; ``""`` when the revision carries none.  A paragraph-mark revision
+    reports an empty ``text``: it revises the mark, not any run, and reporting
+    the paragraph's own text there would read as inserted or deleted text.
+    """
+    mark = revision.kind.startswith("paragraph-mark-")
+    key = (revision.story, revision.paragraph_index)
+    context = "" if revision.paragraph_index is None else contexts.get(key, "")
+    return {
+        "id": "" if revision.id is None else str(revision.id),
+        "author": revision.author or "Unknown",
+        "date": revision.date,
+        "text": "" if mark else revision.text,
+        "paragraph_context": context[:_CONTEXT_LIMIT],
     }
 
 
 def list_tracked_changes_in_doc(filepath: str) -> dict:
-    """List all tracked changes in a document.
+    """List the insertions and deletions of a document, in document order.
+
+    Every story is scanned, not just the body: an insertion in a header is a
+    tracked change like any other, and one that ``accept`` will apply.
 
     Returns:
-        Dict with lists of insertions and deletions
+        ``{"success": True, "insertions": [...], "deletions": [...],
+        "total_insertions": n, "total_deletions": n, "total_changes": n}``,
+        each entry carrying ``id``, ``author``, ``date``, ``text`` and
+        ``paragraph_context``.
     """
-    root, _ = _load_document_xml(filepath)
+    pkg = DocxPackage.open(filepath)
+    contexts = _paragraph_texts(pkg)
 
-    insertions = []
-    deletions = []
-
-    for ins in root.iter(W("ins")):
-        author = ins.get(W("author"), "Unknown")
-        date = ins.get(W("date"), "")
-        change_id = ins.get(W("id"), "")
-        # Get inserted text
-        texts = []
-        for t in ins.iter(W("t")):
-            if t.text:
-                texts.append(t.text)
-        text = "".join(texts)
-
-        # Find paragraph context
-        p = ins.getparent()
-        while p is not None and p.tag != W("p"):
-            p = p.getparent()
-        para_text = _paragraph_text(p) if p is not None else ""
-
-        insertions.append({
-            "id": change_id,
-            "author": author,
-            "date": date,
-            "text": text,
-            "paragraph_context": para_text[:100],
-        })
-
-    for del_elem in root.iter(W("del")):
-        author = del_elem.get(W("author"), "Unknown")
-        date = del_elem.get(W("date"), "")
-        change_id = del_elem.get(W("id"), "")
-        # Get deleted text (from <w:delText>)
-        texts = []
-        for dt in del_elem.iter(W("delText")):
-            if dt.text:
-                texts.append(dt.text)
-        # Also check <w:t> in case of malformed docs
-        if not texts:
-            for t in del_elem.iter(W("t")):
-                if t.text:
-                    texts.append(t.text)
-        text = "".join(texts)
-
-        p = del_elem.getparent()
-        while p is not None and p.tag != W("p"):
-            p = p.getparent()
-        para_text = _paragraph_text(p) if p is not None else ""
-
-        deletions.append({
-            "id": change_id,
-            "author": author,
-            "date": date,
-            "text": text,
-            "paragraph_context": para_text[:100],
-        })
+    insertions: list[dict] = []
+    deletions: list[dict] = []
+    for revision in list_revisions(pkg):
+        if revision.kind in _INSERTION_KINDS:
+            insertions.append(_entry(revision, contexts))
+        elif revision.kind in _DELETION_KINDS:
+            deletions.append(_entry(revision, contexts))
 
     return {
         "success": True,
@@ -515,146 +349,195 @@ def list_tracked_changes_in_doc(filepath: str) -> dict:
     }
 
 
-def accept_tracked_changes_in_doc(
-    filepath: str,
-    author: Optional[str] = None,
-    change_ids: Optional[list[int]] = None,
-) -> dict:
-    """Accept tracked changes (apply insertions, remove deletions).
+# --------------------------------------------------------------------------
+# Applying
+# --------------------------------------------------------------------------
 
-    Args:
-        filepath: Path to .docx file
-        author: If specified, only accept changes by this author
-        change_ids: If specified, only accept changes with these IDs
 
-    Returns:
-        Dict with success status and count
+def _wanted_ids(change_ids: Iterable[int] | None) -> set[int] | None:
+    """The requested id filter as a set, or ``None`` for "every revision".
+
+    Raises:
+        ValueError: if an entry is not an integer.  Dropping it instead would
+            apply a selection the caller never asked for, and report a success.
     """
-    root, zip_bytes = _load_document_xml(filepath)
-    accepted = 0
+    if change_ids is None:
+        return None
+    return {int(change_id) for change_id in change_ids}
 
-    def _should_process(elem):
-        if change_ids is not None:
-            eid = elem.get(W("id"), "")
-            try:
-                if int(eid) not in change_ids:
-                    return False
-            except ValueError:
-                return False
-        if author is not None:
-            if elem.get(W("author"), "") != author:
-                return False
-        return True
 
-    # Accept insertions: unwrap <w:ins> (keep content)
-    for ins in list(root.iter(W("ins"))):
-        if not _should_process(ins):
-            continue
-        parent = ins.getparent()
-        if parent is None:
-            continue
-        idx = list(parent).index(ins)
-        # Move children out of <w:ins>
-        children = list(ins)
-        for i, child in enumerate(children):
-            parent.insert(idx + i, child)
-        parent.remove(ins)
-        accepted += 1
+def _selects(revision: Revision, ids: set[int] | None, author: str | None) -> bool:
+    """Whether the ``change_ids`` / ``author`` filter covers `revision`."""
+    if ids is not None and (revision.id is None or revision.id not in ids):
+        return False
+    return author is None or revision.author == author
 
-    # Accept deletions: remove <w:del> and its content entirely
-    for del_elem in list(root.iter(W("del"))):
-        if not _should_process(del_elem):
-            continue
-        parent = del_elem.getparent()
-        if parent is None:
-            continue
-        parent.remove(del_elem)
-        accepted += 1
 
-    # Also remove rPr/del markers (paragraph deletion markers)
-    for rpr_del in list(root.iter(W("del"))):
-        if not _should_process(rpr_del):
-            continue
-        parent = rpr_del.getparent()
-        if parent is not None:
-            parent.remove(rpr_del)
-            accepted += 1
+def _message(
+    head: str,
+    unsupported: list[Revision],
+    unaddressable: list[Revision],
+    unknown: tuple[int, ...],
+) -> str:
+    """`head`, followed by everything the call deliberately did not apply.
 
-    if accepted == 0:
-        return {"success": True, "message": "No matching tracked changes found to accept", "accepted": 0}
+    The head alone is the message this tool has always returned.  The clauses
+    after it exist because the previous implementation reported ``"Accepted n
+    tracked change(s)"`` while quietly leaving formatting revisions untouched
+    and quietly ignoring an id the document did not carry, so a caller could
+    not tell a fully applied document from a half applied one.
+    """
+    reasons: list[str] = []
+    if unsupported:
+        kinds = ", ".join(sorted({revision.kind for revision in unsupported}))
+        reasons.append(
+            f"{len(unsupported)} revision(s) left in place, of a kind this tool "
+            f"does not apply ({kinds})"
+        )
+    if unaddressable:
+        reasons.append(
+            f"{len(unaddressable)} revision(s) left in place, carrying no usable w:id"
+        )
+    if unknown:
+        listed = ", ".join(str(change_id) for change_id in unknown)
+        reasons.append(
+            f"{len(unknown)} requested id(s) matching no insertion or deletion: {listed}"
+        )
+    return head if not reasons else head + "; " + "; ".join(reasons)
 
-    _save_document_xml(filepath, root, zip_bytes)
+
+def _apply(
+    filepath: str,
+    author: str | None,
+    change_ids: Iterable[int] | None,
+    *,
+    accepting: bool,
+) -> dict:
+    """Shared body of :func:`accept_tracked_changes_in_doc` and its mirror.
+
+    The engine applies a selection as a whole or refuses it as a whole, and it
+    counts a revision it cannot apply as a reason to refuse -- including the
+    row, cell and table-property revisions it does not even report.  This tool
+    has never claimed to apply those, so it hands the engine an explicit list of
+    the ids it does claim, rather than the open selection that would make an
+    unrelated ``w:tblPrChange`` fail the whole call.  What is left out is named
+    in ``message``, never dropped in silence.
+    """
+    verb, counter = ("Accepted", "accepted") if accepting else ("Rejected", "rejected")
+    pkg = DocxPackage.open(filepath)
+    wanted = _wanted_ids(change_ids)
+
+    revisions = list_revisions(pkg)
+    selected = [revision for revision in revisions if _selects(revision, wanted, author)]
+    applicable = [
+        revision
+        for revision in selected
+        if revision.kind in SUPPORTED_KINDS and revision.id is not None
+    ]
+    unsupported = [
+        revision for revision in selected if revision.kind not in SUPPORTED_KINDS
+    ]
+    unaddressable = [
+        revision
+        for revision in selected
+        if revision.kind in SUPPORTED_KINDS and revision.id is None
+    ]
+    unknown: tuple[int, ...] = (
+        ()
+        if wanted is None
+        else tuple(
+            sorted(
+                wanted - {revision.id for revision in revisions if revision.id is not None}
+            )
+        )
+    )
+
+    if not applicable:
+        head = f"No matching tracked changes found to {'accept' if accepting else 'reject'}"
+        return {
+            "success": True,
+            "message": _message(head, unsupported, unaddressable, unknown),
+            counter: 0,
+        }
+
+    apply_revisions = accept if accepting else reject
+    applied = apply_revisions(pkg, [revision.id for revision in applicable], author)
+
+    pkg.save(filepath)
     return {
         "success": True,
-        "accepted": accepted,
-        "message": f"Accepted {accepted} tracked change(s)",
+        counter: len(applied),
+        "message": _message(
+            f"{verb} {len(applied)} tracked change(s)",
+            unsupported,
+            unaddressable,
+            unknown,
+        ),
     }
+
+
+def accept_tracked_changes_in_doc(
+    filepath: str,
+    author: str | None = None,
+    change_ids: list[int] | None = None,
+) -> dict:
+    """Accept tracked changes: keep what was inserted, drop what was deleted.
+
+    `author` and `change_ids` narrow the selection and combine, ``None`` for
+    both accepting every revision of the package.  Accepting is all-or-nothing:
+    the whole selection is checked before anything is written, so the file is
+    either fully applied or untouched.
+
+    A deleted paragraph mark now merges its paragraph into the following one,
+    which is the effect Word applies and which the previous implementation
+    reported without performing.  The formatting revisions this tool has never
+    applied (``w:rPrChange``, ``w:pPrChange``) are still left in place, but the
+    ``message`` now says so.
+
+    Args:
+        filepath: path to the ``.docx`` file, rewritten in place when something
+            was applied.
+        author: only accept revisions carrying this ``w:author``.
+        change_ids: only accept revisions carrying one of these ``w:id``.
+
+    Returns:
+        ``{"success": True, "accepted": n, "message": ...}``.  ``n`` is 0 and
+        the file is left untouched when the selection matches nothing.
+
+    Raises:
+        EngineError: if the selection cannot be applied as a whole -- a deleted
+            paragraph mark with no paragraph to merge into.  Nothing is written.
+        ValueError: if `change_ids` holds a value that is not an integer.
+    """
+    return _apply(filepath, author, change_ids, accepting=True)
 
 
 def reject_tracked_changes_in_doc(
     filepath: str,
-    author: Optional[str] = None,
-    change_ids: Optional[list[int]] = None,
+    author: str | None = None,
+    change_ids: list[int] | None = None,
 ) -> dict:
-    """Reject tracked changes (remove insertions, restore deletions).
+    """Reject tracked changes: drop what was inserted, restore what was deleted.
+
+    Same selection rules and same all-or-nothing contract as
+    :func:`accept_tracked_changes_in_doc`.  Rejecting an inserted paragraph mark
+    merges its paragraph back into the following one, undoing the split the
+    reviewer introduced.
 
     Args:
-        filepath: Path to .docx file
-        author: If specified, only reject changes by this author
-        change_ids: If specified, only reject changes with these IDs
+        filepath: path to the ``.docx`` file, rewritten in place when something
+            was applied.
+        author: only reject revisions carrying this ``w:author``.
+        change_ids: only reject revisions carrying one of these ``w:id``.
 
     Returns:
-        Dict with success status and count
+        ``{"success": True, "rejected": n, "message": ...}``.  ``n`` is 0 and
+        the file is left untouched when the selection matches nothing.
+
+    Raises:
+        EngineError: if the selection cannot be applied as a whole -- an
+            inserted paragraph mark with no paragraph to merge into.  Nothing is
+            written.
+        ValueError: if `change_ids` holds a value that is not an integer.
     """
-    root, zip_bytes = _load_document_xml(filepath)
-    rejected = 0
-
-    def _should_process(elem):
-        if change_ids is not None:
-            eid = elem.get(W("id"), "")
-            try:
-                if int(eid) not in change_ids:
-                    return False
-            except ValueError:
-                return False
-        if author is not None:
-            if elem.get(W("author"), "") != author:
-                return False
-        return True
-
-    # Reject insertions: remove <w:ins> and its content
-    for ins in list(root.iter(W("ins"))):
-        if not _should_process(ins):
-            continue
-        parent = ins.getparent()
-        if parent is None:
-            continue
-        parent.remove(ins)
-        rejected += 1
-
-    # Reject deletions: unwrap <w:del>, convert delText→t (restore original text)
-    for del_elem in list(root.iter(W("del"))):
-        if not _should_process(del_elem):
-            continue
-        parent = del_elem.getparent()
-        if parent is None:
-            continue
-        idx = list(parent).index(del_elem)
-        children = list(del_elem)
-        for i, child in enumerate(children):
-            # Convert <w:delText> back to <w:t>
-            for dt in child.iter(W("delText")):
-                dt.tag = W("t")
-            parent.insert(idx + i, child)
-        parent.remove(del_elem)
-        rejected += 1
-
-    if rejected == 0:
-        return {"success": True, "message": "No matching tracked changes found to reject", "rejected": 0}
-
-    _save_document_xml(filepath, root, zip_bytes)
-    return {
-        "success": True,
-        "rejected": rejected,
-        "message": f"Rejected {rejected} tracked change(s)",
-    }
+    return _apply(filepath, author, change_ids, accepting=False)
