@@ -22,7 +22,14 @@ paragraph:
     ``{"paragraph": i, "expect_text": ...}`` addresses (see ``docs/plans``).
     A paragraph that sits inside a table cell has no such index -- the V2
     paragraph locator does not reach into tables, a ``{"table", "row", "col",
-    "paragraph"}`` locator does instead -- so `index` is ``None`` for it.
+    "paragraph"}`` locator does instead -- so `index` is ``None`` for it.  A
+    paragraph inside a text box (``w:txbxContent``, whichever of the VML and
+    DrawingML shapes holds it) or inside an ``mc:AlternateContent`` branch is
+    out of the V2 space for the same reason and reads ``None`` too: it is not
+    part of the story's linear flow, and the two branches of an
+    ``mc:AlternateContent`` describe the *same* shape twice, so counting them
+    would make the index of every following paragraph depend on a fallback the
+    reader never sees.
     Three different "paragraph index" spaces coexist across this codebase
     (python-docx's own body list, a plain ``//w:p``, or ``body//w:p``); this
     one is none of them, on purpose.
@@ -78,7 +85,12 @@ if TYPE_CHECKING:
 __all__ = ["Match", "find", "iter_paragraphs"]
 
 _W_P = qn("w:p")
-_W_TC = qn("w:tc")
+
+#: Ancestors that take a paragraph out of the V2 index space: a table cell, a
+#: text box of either flavour (VML ``w:pict`` and DrawingML ``wps:txbx`` both
+#: hold their paragraphs in a ``w:txbxContent``), and a markup-compatibility
+#: branch.  See the module docstring for why.
+_UNINDEXED_ANCESTORS = frozenset({qn("w:tc"), qn("w:txbxContent"), qn("mc:AlternateContent")})
 
 #: Friendly alias for :data:`~word_document_server.engine.package.MAIN_STORY`,
 #: accepted (and defaulted to) by the `stories` filter of :func:`find`.
@@ -99,7 +111,8 @@ class Match:
             never the ``"body"`` alias, even when that alias selected it.
         paragraph: the live ``w:p`` element containing the match.
         index: the paragraph's V2 index within `story` (see the module
-            docstring), or ``None`` if `paragraph` sits inside a table cell.
+            docstring), or ``None`` if `paragraph` sits inside a table cell, a
+            text box or an ``mc:AlternateContent`` branch.
         start: offset of the first matched character in
             ``visible_text(paragraph)``.
         end: offset just past the last matched character.
@@ -133,7 +146,7 @@ def iter_paragraphs(story_root: etree._Element) -> list[etree._Element]:
     as running text (a text box's ``w:txbxContent``, for instance) -- callers
     that only want paragraphs contributing to the document's reading flow
     should filter on their own context, the same way `find` filters out table
-    cells for V2 indexing.
+    cells and text boxes for V2 indexing.
     """
     return list(story_root.iter(_W_P))
 
@@ -142,16 +155,17 @@ def _v2_index_map(paragraphs: list[etree._Element]) -> dict[etree._Element, int]
     """Map each top-level paragraph in `paragraphs` to its 0-based V2 index.
 
     A paragraph is top-level unless one of its ancestors, up to (and excluding)
-    the story root, is a table cell (``w:tc``) -- a ``w:sdt`` ancestor, block or
-    inline, does not disqualify it.  Paragraphs inside a table cell are simply
-    absent from the returned map; they do not consume a slot in the count, so
-    the numbering seen by a top-level paragraph is unaffected by tables that
-    precede it.
+    the story root, is one of :data:`_UNINDEXED_ANCESTORS` -- a table cell, a
+    text box or a markup-compatibility branch.  A ``w:sdt`` ancestor, block or
+    inline, does not disqualify it.  Paragraphs under one of those ancestors are
+    simply absent from the returned map; they do not consume a slot in the
+    count, so the numbering seen by a top-level paragraph is unaffected by the
+    tables and the text boxes that precede it.
     """
     index_map: dict[etree._Element, int] = {}
     counter = 0
     for paragraph in paragraphs:
-        if any(ancestor.tag == _W_TC for ancestor in paragraph.iterancestors()):
+        if any(ancestor.tag in _UNINDEXED_ANCESTORS for ancestor in paragraph.iterancestors()):
             continue
         index_map[paragraph] = counter
         counter += 1

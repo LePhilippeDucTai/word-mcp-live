@@ -30,6 +30,8 @@ from word_document_server.engine.ids import (
     next_para_id,
 )
 from word_document_server.engine.package import (
+    COMMENTS_CONTENT_TYPE,
+    LIVE_CONTENT_TYPES,
     MAIN_STORY,
     STORY_CONTENT_TYPES,
     DocxPackage,
@@ -39,6 +41,8 @@ from word_document_server.engine.package import (
 from word_document_server.engine.xmlns import MC, NAMESPACES, W14, W15, XML, R, W, qn
 
 __all__ = [
+    "COMMENTS_CONTENT_TYPE",
+    "LIVE_CONTENT_TYPES",
     "MAIN_STORY",
     "MC",
     "NAMESPACES",

@@ -14,7 +14,7 @@ Updated 2026-09-09 · s3 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P6 | Review J01 | T2 | ✅ | 1 | round 1 failed → 3 corrections ; round 2 done, 3 should-fix restants (D-004) |
 | J01-P7 | Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués | T3 | ✅ | 1 | corrective D-004 ; `REL-REF-UNRESOLVED`, `Snapshot.sect_pr`, 4 tests positifs ; suite 176→183 passed |
 
-## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (9/10)
+## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (10/10)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -26,7 +26,7 @@ Updated 2026-09-09 · s3 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J02-P6 | Révisions | T2 | ✅ | 1 | `tracked_*(pkg, …)`, `list_revisions`, `accept`/`reject` ; genres non gérés refusés, pas ignorés ; 57 tests ; a levé D-008 |
 | J02-P8 | Correctif D-007 : aller-retour `open`/`save` neutre, assertions `is_empty()` | T3 | ✅ | 1 | `LIVE_CONTENT_TYPES` ; aller-retour neutre 0/19 → 19/19 ; garde grep `is_empty()` ; suite 775 passed |
 | J02-P9 | Marque de paragraphe insérée dans accept/reject | T3 | ✅ | 1 | suivi D-008 ; `_joins_paragraphs(kind, accepting)` partagé par le pré-contrôle et `_apply_one` ; 780 passed, 9 xfailed |
-| J02-P10 | Correctif D-009 : index V2 sans zones de texte, tracked_insert sans sortie de conteneur, réexports | T3 | ⬜ | 0 | corrective D-009 ; hors périmètre de J02-P7 (close), relue par J03-P8 |
+| J02-P10 | Correctif D-009 : index V2 sans zones de texte, tracked_insert sans sortie de conteneur, réexports | T3 | ✅ | 1 | corrective D-009 ; fixtures `text_boxes` et `tracked_containers` ; repousse du `w:ins` dans le conteneur ; hors périmètre de J02-P7 (close), relue par J03-P8 ; suite 780 → 830 passed, 9 xfailed |
 | J02-P7 | Review J02 | T2 | ✅ | 1 | round 1 sans finding bloquant ; 780 passed / 9 xfailed, build et lint verts ; 2 should-fix + 1 optional → D-009 |
 
 ## J03 — Migration des outils existants sur le cœur (0/8)
@@ -75,12 +75,13 @@ Updated 2026-09-09 · s3 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 ## Next session
 
-- Ready: J02-P9 (suivi D-008), puis J02-P7 (revue J02, coupée en s2 : à relancer)
+- Ready: J03-P1, J03-P2, J03-P3, J03-P4 (`depends_on: []`, fichiers disjoints — une vague de 4). Puis J03-P5 (après P1), J03-P6 (après P4), J03-P7, J03-P8.
 - Orchestrator: opus/high
-- Decision: none (D-005, D-006, D-008 tranchées à la clôture de s2)
+- Decision: none (D-009 tranchée en séance en s3)
 
 ## Log
 
+- 2026-09-09 s3: J02-P9 et J02-P7 (revue J02, round 1 sans finding bloquant) ✅ ; D-009 tranchée en séance sur les 2 should-fix de la revue (run sur conteneur sorti de son `w:hyperlink`/`w:sdt` par `tracked_insert`, index V2 faussé par les zones de texte) → +J02-P10 ✅ ; **J02 complet (10/10)** ; suite 775 → 830 passed, 9 xfailed
 - 2026-09-09 s2 (clôture): D-005 (lecture mécanique des champs imbriqués), D-006 (alias "body", index V2 None en cellule ; vocabulaire J03/J04 aligné), D-008 (+J02-P9) tranchées
 - 2026-09-09 s2: J01-P7, J02-P1..P6 et J02-P8 ✅ ; D-007 tranchée en séance (assertions `is_empty` vides + aller-retour `open`/`save` non neutre) → +J02-P8, aller-retour neutre 19/19 ; suite 1 → 775 passed ; J02-P7 coupée par une limite Opus, try rendu
 

@@ -221,6 +221,55 @@ def test_find_index_includes_block_sdt_content() -> None:
 
 
 # --------------------------------------------------------------------------------------
+# V2 paragraph index: text boxes excluded
+# --------------------------------------------------------------------------------------
+
+#: The three paragraphs the ``text_boxes`` fixture hides in a shape: the VML
+#: box, and the two branches -- modern and fallback -- of the DrawingML one,
+#: which describe the same box twice.
+TEXT_BOX_TEXTS = (
+    "Text inside the VML text box.",
+    "Text inside the DrawingML text box.",
+    "Text inside the DrawingML fallback.",
+)
+
+#: Every paragraph of the ``text_boxes`` body, in document order, with the V2
+#: index it must report.  The boxes sit between anchors 2 and 3.
+TEXT_BOX_BODY = (
+    "Fixture: text boxes",
+    "Body text before the boxes.",
+    "Anchor of the VML box.",
+    "Anchor of the DrawingML box.",
+    "Body text after the boxes.",
+)
+
+
+def test_iter_paragraphs_still_lists_text_box_paragraphs() -> None:
+    pkg = _pkg("text_boxes")
+    root = dict(pkg.stories())["document"]
+    paragraphs = iter_paragraphs(root)
+    assert paragraphs == list(root.iter(W_P))
+    texts = [visible_text(p) for p in paragraphs]
+    assert [text for text in texts if text in TEXT_BOX_TEXTS] == list(TEXT_BOX_TEXTS)
+
+
+def test_find_gives_no_index_to_a_paragraph_inside_a_text_box() -> None:
+    pkg = _pkg("text_boxes")
+    for text in TEXT_BOX_TEXTS:
+        [match] = find(pkg, text)
+        assert match.index is None, text
+
+
+def test_find_numbers_the_paragraphs_around_a_text_box_without_a_gap() -> None:
+    pkg = _pkg("text_boxes")
+    found = []
+    for text in TEXT_BOX_BODY:
+        [match] = find(pkg, text)
+        found.append(match.index)
+    assert found == [0, 1, 2, 3, 4]
+
+
+# --------------------------------------------------------------------------------------
 # max_results
 # --------------------------------------------------------------------------------------
 

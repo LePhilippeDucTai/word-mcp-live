@@ -48,6 +48,18 @@ one: text typed inside another author's insertion splits it in two and stands
 between the halves, and text typed inside the author's own insertion simply
 joins it.
 
+Splitting an insertion never takes a run out of the container it sits in.  When
+another author's ``w:ins`` holds a ``w:hyperlink``, a ``w:sdt``, a
+``w:smartTag``, a ``w:customXml``, a ``w:dir`` or a ``w:bdo``, the insertion is
+split around that container and then *pushed inside* it: every stretch of
+content that is not on the path to the new run is re-wrapped in a copy of the
+insertion, with a fresh id, so that ``w:hyperlink/w:ins`` -- the form Word
+itself writes -- is what comes out.  The container is never cloned, never split
+and never left by a run, because a hyperlink cut in two is two hyperlinks and a
+run moved out of one has silently lost its link.  The trade-off is that the
+container stops being carried by the enclosing insertion: rejecting every
+revision it now holds empties it instead of removing it.
+
 Listing
 -------
 :func:`list_revisions` reports the revisions attached to a paragraph or to its
@@ -191,6 +203,14 @@ _W_DEL_INSTR_TEXT = qn("w:delInstrText")
 _W_ID = qn("w:id")
 _W_AUTHOR = qn("w:author")
 _W_DATE = qn("w:date")
+_W_SDT = qn("w:sdt")
+_W_SDT_CONTENT = qn("w:sdtContent")
+
+#: Property children of an inline container: they describe the container, they
+#: are not content, and wrapping one in a ``w:ins`` would be nonsense.
+_CONTAINER_PROPERTIES = frozenset(
+    qn(tag) for tag in ("w:sdtPr", "w:sdtEndPr", "w:smartTagPr", "w:customXmlPr")
+)
 
 #: Elements whose textual content is stored but not shown.  A ``w:t`` under one
 #: of them is already a ``w:delText``; the conversions below stop there so a
@@ -600,31 +620,95 @@ def tracked_delete(
     return tuple(created)
 
 
+def _copy_around(
+    nodes: list[etree._Element], template: etree._Element, allocator: _Ids
+) -> etree._Element:
+    """Wrap `nodes` in a copy of `template` with a fresh id, where they stand.
+
+    `nodes` must be consecutive siblings.  Every attribute of `template` rides
+    along -- author and date above all -- except ``w:id``, since two revision
+    elements must never share one.  `template` itself is only read, and may
+    already be detached from the tree.
+    """
+    first = nodes[0]
+    parent = first.getparent()
+    index = parent.index(first)
+    element = etree.SubElement(parent, template.tag)
+    for key, value in template.attrib.items():
+        element.set(key, value)
+    element.set(_W_ID, str(allocator.take()))
+    parent.insert(index, element)
+    for node in nodes:
+        element.append(node)
+    return element
+
+
 def _split_around(container: etree._Element, child: etree._Element, allocator: _Ids) -> None:
     """Move `child` out of `container`, keeping the document order intact.
 
-    `child` ends up as a sibling of `container`: before it when nothing preceded
-    it inside, after it when nothing followed, and between the two halves
-    otherwise -- the second half being a copy of `container` with a fresh id,
-    since two revision elements must never share one.
+    `child` must be a *direct* child of `container`; it ends up as a sibling of
+    it: before it when nothing preceded it inside, after it when nothing
+    followed, and between the two halves otherwise -- the second half being a
+    copy of `container` with a fresh id.  A `container` the move emptied is
+    removed rather than left behind as a revision element covering nothing.
     """
     parent = container.getparent()
     preceding = list(child.itersiblings(preceding=True))
     following = list(child.itersiblings())
     if not preceding:
         parent.insert(parent.index(container), child)
-        return
-    if not following:
+    elif not following:
         parent.insert(parent.index(container) + 1, child)
-        return
-    parent.insert(parent.index(container) + 1, child)
-    tail = etree.SubElement(parent, container.tag)
-    for key, value in container.attrib.items():
-        tail.set(key, value)
-    tail.set(_W_ID, str(allocator.take()))
-    for node in following:
-        tail.append(node)
-    parent.insert(parent.index(child) + 1, tail)
+    else:
+        parent.insert(parent.index(container) + 1, child)
+        tail = _copy_around(following, container, allocator)
+        parent.insert(parent.index(child) + 1, tail)
+    if len(container) == 0:
+        parent.remove(container)
+
+
+def _child_holding(ancestor: etree._Element, node: etree._Element) -> etree._Element:
+    """The child of `ancestor` that is `node` or holds it."""
+    current = node
+    while current.getparent() is not ancestor:
+        current = current.getparent()
+    return current
+
+
+def _content_of(container: etree._Element) -> etree._Element:
+    """Where `container` keeps its content: ``w:sdtContent`` for a ``w:sdt``."""
+    if container.tag == _W_SDT:
+        found = container.find(_W_SDT_CONTENT)
+        if found is not None:
+            return found
+    return container
+
+
+def _push_into(
+    container: etree._Element,
+    run: etree._Element,
+    template: etree._Element,
+    allocator: _Ids,
+) -> None:
+    """Re-record `container`'s content as `template`, sparing the path to `run`.
+
+    Walks down from `container` to `run`.  At every step, the content that
+    precedes the path and the content that follows it are each wrapped in their
+    own copy of `template`, so that the revision `container` was carried by is
+    now carried by everything inside it *except* the new run -- which is what
+    lets :func:`tracked_insert` leave the container itself alone.  Property
+    children (:data:`_CONTAINER_PROPERTIES`) are never wrapped.
+    """
+    node = container
+    while node is not run:
+        content = _content_of(node)
+        step = _child_holding(content, run)
+        siblings = [child for child in content if child.tag not in _CONTAINER_PROPERTIES]
+        at = siblings.index(step)
+        for group in (siblings[:at], siblings[at + 1 :]):
+            if group:
+                _copy_around(group, template, allocator)
+        node = step
 
 
 def _free_of_insertions(
@@ -635,8 +719,15 @@ def _free_of_insertions(
     Returns ``True`` when the caller still has to wrap it in a ``w:ins`` of its
     own, and ``False`` when an enclosing insertion already attributes the run to
     `author` -- in which case adding one would record the same text as inserted
-    twice.  The loop terminates because each split removes one ``w:ins`` from
-    the run's ancestry.
+    twice.
+
+    A run that is a direct child of the insertion simply splits it.  A run
+    nested deeper sits in an inline container -- a hyperlink, a content control,
+    a smart tag -- and the container is what the insertion is split around; the
+    insertion is then pushed inside it by :func:`_push_into`, so the container
+    is neither cloned nor left by the run.  See the module docstring.  Either
+    way the loop terminates: each pass removes one ``w:ins`` from the run's
+    ancestry and adds none.
     """
     while True:
         enclosing = _enclosing(run, _W_INS, paragraph)
@@ -644,7 +735,10 @@ def _free_of_insertions(
             return True
         if enclosing.get(_W_AUTHOR, "") == author:
             return False
-        _split_around(enclosing, run, allocator)
+        child = _child_holding(enclosing, run)
+        _split_around(enclosing, child, allocator)
+        if child is not run:
+            _push_into(child, run, enclosing, allocator)
 
 
 def tracked_insert(

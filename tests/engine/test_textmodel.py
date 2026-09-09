@@ -242,6 +242,26 @@ EXPECTED_BODY_TEXT: dict[str, list[str]] = {
         # w:drawing is opaque, so the two surrounding spaces meet.
         "A second inline image, inside a text paragraph:  and text after it.",
     ],
+    "text_boxes": [
+        "Fixture: text boxes",
+        "Body text before the boxes.",
+        # w:pict is opaque: the box's own text does not join the anchor's flow.
+        "Anchor of the VML box.",
+        "Text inside the VML text box.",
+        "Anchor of the DrawingML box.",
+        # mc:AlternateContent describes the same box twice, so a plain //w:p
+        # walk reports the modern branch and its fallback one after the other.
+        "Text inside the DrawingML text box.",
+        "Text inside the DrawingML fallback.",
+        "Body text after the boxes.",
+    ],
+    "tracked_containers": [
+        "Fixture: tracked containers",
+        # An insertion is visible text, and so is a hyperlink's content.
+        "An inserted link: first half second half.",
+        "An inserted control: controlled start controlled end.",
+        "A link holding an insertion: linked start linked end.",
+    ],
 }
 
 #: Visible text of the stories other than the body, for the fixtures that have any.
