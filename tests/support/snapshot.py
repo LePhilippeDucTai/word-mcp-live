@@ -64,6 +64,13 @@ the non-textual children of a run (``w:drawing``, ``w:object``, ``w:pict``,
 borders, widths) and ``w:sdtPr`` (identity of a content control, whether the
 control wraps the paragraph or sits inside it).  Anything left out of these
 signatures is a loss the harness cannot see.
+
+The body ``w:sectPr`` belongs to no paragraph, so it needs its own carrier:
+:attr:`Snapshot.sect_pr` holds it per story (page size, margins, columns,
+header and footer references, ``w:titlePg``).  Only listing the story part in
+``parts=`` relaxes it -- allowing a paragraph does not, since a section that
+loses its header references has lost nothing a paragraph could account for.
+The ``w:sectPr`` of a *paragraph* stays inside :attr:`ParagraphSignature.ppr`.
 """
 
 from __future__ import annotations
@@ -130,6 +137,8 @@ def _w(tag: str) -> str:
 
 
 _P = _w("p")
+_BODY = _w("body")
+_SECT_PR = _w("sectPr")
 _PPR = _w("pPr")
 _RPR = _w("rPr")
 _R = _w("r")
@@ -326,6 +335,10 @@ class Snapshot:
     counters: Mapping[str, int]
     stories: tuple[str, ...]
     story_parts: Mapping[str, str]
+    #: Story -> exclusive C14N of the ``w:sectPr`` that is a direct child of
+    #: ``w:body``, "" when the story has no body (headers, footers, notes,
+    #: comments) or no final section properties.
+    sect_pr: Mapping[str, str]
 
     def story_paragraphs(self, story: str) -> tuple[ParagraphSignature, ...]:
         """Paragraphs of one story, in snapshot-space order."""
@@ -380,6 +393,8 @@ class Diff:
     tables_changed: tuple[TableChange, ...] = ()
     relationships_added: tuple[tuple[str, str, str], ...] = ()
     relationships_removed: tuple[tuple[str, str, str], ...] = ()
+    #: One entry per story whose body ``w:sectPr`` differs; ``field`` is the story.
+    sect_pr_changed: tuple[FieldChange, ...] = ()
     counters_changed: tuple[FieldChange, ...] = ()
 
     def is_empty(self) -> bool:
@@ -417,6 +432,8 @@ class Diff:
         for name in ("relationships_added", "relationships_removed"):
             for part, rtype, target in getattr(self, name):
                 lines.append(f"{name}: {part} {rtype} -> {target}")
+        for item in self.sect_pr_changed:
+            lines.append(f"sect_pr {item.field}: {item.before!r} -> {item.after!r}")
         for item in self.counters_changed:
             lines.append(f"counter {item.field}: {item.before} -> {item.after}")
         return "\n".join(lines)
@@ -764,6 +781,20 @@ def _table_signature(story: str, index: int, table: etree._Element) -> TableSign
     )
 
 
+def _body_sect_pr(root: etree._Element) -> str:
+    """Body-level ``w:sectPr`` of a story, "" when the story has no body.
+
+    Only the ``w:sectPr`` that is a *direct* child of ``w:body`` is read here:
+    it holds the final section of the document and is attached to no paragraph.
+    A ``w:sectPr`` nested in a ``w:pPr`` stays where it belongs, in
+    :attr:`ParagraphSignature.ppr`.
+    """
+    body = root.find(_BODY)
+    if body is None:
+        return ""
+    return _canonical_fragment(body.find(_SECT_PR))
+
+
 def _count_elements(roots: Mapping[str, etree._Element]) -> dict[str, int]:
     counters = dict.fromkeys(
         (
@@ -851,6 +882,7 @@ def snapshot(path_or_bytes: str | os.PathLike[str] | bytes | bytearray) -> Snaps
     tables: dict[tuple[str, int], TableSignature] = {}
     stories: list[str] = []
     story_parts: dict[str, str] = {}
+    sect_pr: dict[str, str] = {}
     for name in sorted(roots):
         if _content_type_of(name, defaults, overrides) not in STORY_CONTENT_TYPES:
             continue
@@ -858,6 +890,7 @@ def snapshot(path_or_bytes: str | os.PathLike[str] | bytes | bytearray) -> Snaps
         story = _story_id(name)
         stories.append(story)
         story_parts[story] = name
+        sect_pr[story] = _body_sect_pr(root)
         bookmark_names = _bookmark_names(root)
         for index, paragraph in enumerate(root.iter(_P)):
             paragraphs[(story, index)] = _paragraph_signature(
@@ -875,6 +908,7 @@ def snapshot(path_or_bytes: str | os.PathLike[str] | bytes | bytearray) -> Snaps
         counters=_count_elements(roots),
         stories=tuple(stories),
         story_parts=story_parts,
+        sect_pr=sect_pr,
     )
 
 
@@ -949,6 +983,12 @@ def diff(a: Snapshot, b: Snapshot) -> Diff:
         rels_added.extend((owner, t, target) for t, target in sorted(after - before))
         rels_removed.extend((owner, t, target) for t, target in sorted(before - after))
 
+    sect_pr_changed = tuple(
+        FieldChange(story, a.sect_pr.get(story, ""), b.sect_pr.get(story, ""))
+        for story in sorted(set(a.sect_pr) | set(b.sect_pr))
+        if a.sect_pr.get(story, "") != b.sect_pr.get(story, "")
+    )
+
     counters_changed = tuple(
         FieldChange(name, a.counters.get(name, 0), b.counters.get(name, 0))
         for name in sorted(set(a.counters) | set(b.counters))
@@ -969,6 +1009,7 @@ def diff(a: Snapshot, b: Snapshot) -> Diff:
         tables_changed=tuple(tables_changed),
         relationships_added=tuple(rels_added),
         relationships_removed=tuple(rels_removed),
+        sect_pr_changed=sect_pr_changed,
         counters_changed=counters_changed,
     )
 
@@ -997,8 +1038,12 @@ def assert_unchanged_except(
     ``paragraphs`` lists the paragraph keys allowed to change, in the snapshot
     index space; a bare int means the main story.  Allowing a paragraph also
     allows the digest of its story part -- a paragraph cannot change without
-    its part changing.  ``parts`` lists part names whose digest, relationships
-    and added/removed state are allowed to change.
+    its part changing.  ``parts`` lists part names whose digest, relationships,
+    body ``w:sectPr`` and added/removed state are allowed to change.
+
+    The body ``w:sectPr`` of a story is guarded even when a paragraph of that
+    story is allowed: it is section-level, not paragraph-level, so only naming
+    its part in ``parts`` relaxes it.
 
     ``counters`` relaxes a counter **globally**, for the whole package, not
     paragraph by paragraph: ``counters={"revisions"}`` accepts any revision
@@ -1089,6 +1134,12 @@ def assert_unchanged_except(
     for owner, rtype, target in delta.relationships_removed:
         if keep_part(owner):
             problems.append(f"relationship removed: {owner} {rtype} -> {target}")
+
+    for item in delta.sect_pr_changed:
+        if item.field not in allowed_stories:
+            problems.append(
+                f"sect_pr {item.field}: {item.before!r} -> {item.after!r}"
+            )
 
     for item in delta.counters_changed:
         if item.field not in allowed_counters:
