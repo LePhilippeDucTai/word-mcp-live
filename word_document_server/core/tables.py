@@ -1,12 +1,19 @@
 """
 Table-related operations for Word Document Server.
 """
+import string
+
 from docx.oxml.shared import OxmlElement, qn
 from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.shared import RGBColor, Inches, Cm, Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
+
+from word_document_server.engine.errors import EngineError
+from word_document_server.engine.format import apply_rpr
+from word_document_server.engine.ranges import insert_text, replace_range, resolve
+from word_document_server.engine.textmodel import visible_text
 
 
 def set_cell_border(cell, **kwargs):
@@ -653,11 +660,118 @@ def auto_fit_table(table):
         return False
 
 
-def format_cell_text(cell, text_content=None, bold=None, italic=None, underline=None, 
+#: Colour names the text-formatting helpers accept, and the ``RRGGBB`` value
+#: each one stands for.  Word stores a colour as six hexadecimal digits or as
+#: the keyword ``auto``; a name is a convenience of this layer, not a schema
+#: value, so it is translated here and never reaches the engine.
+COLOR_NAMES = {
+    'black': '000000',
+    'blue': '0000FF',
+    'gray': '808080',
+    'green': '008000',
+    'grey': '808080',
+    'orange': 'FFA500',
+    'purple': '800080',
+    'red': 'FF0000',
+    'white': 'FFFFFF',
+    'yellow': 'FFFF00',
+}
+
+
+def resolve_color(color):
+    """
+    Translate a colour a caller gave into what ``w:color`` can store.
+
+    Args:
+        color: a name from :data:`COLOR_NAMES`, ``"auto"``, or a hexadecimal
+            ``RRGGBB`` value with or without a leading ``#``
+
+    Returns:
+        The ``RRGGBB`` value (upper case) or ``"auto"``, and ``None`` when
+        `color` is none of those — the caller decides what to tell the user,
+        which is never "black".
+    """
+    if not isinstance(color, str):
+        return None
+    value = color.strip()
+    if value.lower() == 'auto':
+        return 'auto'
+    named = COLOR_NAMES.get(value.lower())
+    if named is not None:
+        return named
+    raw = value.removeprefix('#')
+    if len(raw) == 6 and all(character in string.hexdigits for character in raw):
+        return raw.upper()
+    return None
+
+
+def run_patch(bold=None, italic=None, underline=None, color=None,
+              font_size=None, font_name=None):
+    """
+    Build the run-property patch :func:`~...engine.format.apply_rpr` takes.
+
+    Only the properties the caller actually named end up in the patch: a
+    property left at ``None`` is absent from it, and therefore left as it is on
+    the runs rather than reset.
+
+    Args:
+        bold: Set text bold (True/False)
+        italic: Set text italic (True/False)
+        underline: Set text underlined (True/False), or an underline style name
+        color: Text color (name, "auto", or hex string like "FF0000")
+        font_size: Font size in points
+        font_name: Font name/family
+
+    Returns:
+        A dict of engine property names to values, possibly empty.
+
+    Raises:
+        ValueError: if `color` is neither a known name, ``"auto"`` nor a
+            hexadecimal value.
+    """
+    patch = {}
+    if bold is not None:
+        patch['bold'] = bold
+    if italic is not None:
+        patch['italic'] = italic
+    if underline is not None:
+        patch['underline'] = underline
+    if color:
+        resolved = resolve_color(color)
+        if resolved is None:
+            raise ValueError(
+                f"Invalid color '{color}'. Use a hex value such as 'FF0000', 'auto', "
+                f"or one of: {', '.join(sorted(COLOR_NAMES))}."
+            )
+        patch['color'] = resolved
+    if font_size:
+        patch['size_pt'] = font_size
+    if font_name:
+        patch['font'] = font_name
+    return patch
+
+
+def _set_paragraph_text(paragraph, text):
+    """Replace the whole visible text of `paragraph` by `text`, in place."""
+    length = len(visible_text(paragraph))
+    if length:
+        replace_range(paragraph, 0, length, text)
+    elif text:
+        insert_text(paragraph, 0, text)
+
+
+def format_cell_text(cell, text_content=None, bold=None, italic=None, underline=None,
                     color=None, font_size=None, font_name=None):
     """
     Format text within a table cell.
-    
+
+    Formatting is applied to the ``w:rPr`` of the runs the cell already holds,
+    so what those runs carry and the caller did not name — the character style,
+    the language, the theme font — is kept, and no run is created or dropped.
+    ``text_content`` replaces the text of the cell's *first* paragraph only:
+    the other paragraphs of the cell, and any table nested in it, are left
+    exactly as they were.
+
     Args:
         cell: The table cell to format
         text_content: Optional new text content for the cell
@@ -667,73 +781,38 @@ def format_cell_text(cell, text_content=None, bold=None, italic=None, underline=
         color: Text color (hex string like "FF0000" or color name)
         font_size: Font size in points
         font_name: Font name/family
-        
+
     Returns:
         True if successful, False otherwise
+
+    Raises:
+        ValueError: if a value cannot be stored — an unreadable colour, a font
+            size the schema cannot hold. The old behaviour of falling back to
+            black on an unreadable colour is gone: it changed the document into
+            something the caller never asked for and said nothing.
+        EngineError: if the cell holds something this layer refuses to rewrite,
+            such as a field the new text would cut through.
     """
+    patch = run_patch(bold=bold, italic=italic, underline=underline, color=color,
+                      font_size=font_size, font_name=font_name)
     try:
-        # Set text content if provided
-        if text_content is not None:
-            cell.text = str(text_content)
-        
-        # Apply formatting to all paragraphs and runs in the cell
-        for paragraph in cell.paragraphs:
-            for run in paragraph.runs:
-                if bold is not None:
-                    run.bold = bold
-                if italic is not None:
-                    run.italic = italic
-                if underline is not None:
-                    run.underline = underline
-                    
-                if font_size is not None:
-                    from docx.shared import Pt
-                    run.font.size = Pt(font_size)
-                    
-                if font_name is not None:
-                    run.font.name = font_name
-                    
-                if color is not None:
-                    from docx.shared import RGBColor
-                    # Define common RGB colors
-                    color_map = {
-                        'red': RGBColor(255, 0, 0),
-                        'blue': RGBColor(0, 0, 255),
-                        'green': RGBColor(0, 128, 0),
-                        'yellow': RGBColor(255, 255, 0),
-                        'black': RGBColor(0, 0, 0),
-                        'gray': RGBColor(128, 128, 128),
-                        'grey': RGBColor(128, 128, 128),
-                        'white': RGBColor(255, 255, 255),
-                        'purple': RGBColor(128, 0, 128),
-                        'orange': RGBColor(255, 165, 0)
-                    }
-                    
-                    try:
-                        if color.lower() in color_map:
-                            # Use predefined RGB color
-                            run.font.color.rgb = color_map[color.lower()]
-                        elif color.startswith('#'):
-                            # Hex color string
-                            hex_color = color.lstrip('#')
-                            if len(hex_color) == 6:
-                                r = int(hex_color[0:2], 16)
-                                g = int(hex_color[2:4], 16)
-                                b = int(hex_color[4:6], 16)
-                                run.font.color.rgb = RGBColor(r, g, b)
-                        else:
-                            # Try hex without #
-                            if len(color) == 6:
-                                r = int(color[0:2], 16)
-                                g = int(color[2:4], 16)
-                                b = int(color[4:6], 16)
-                                run.font.color.rgb = RGBColor(r, g, b)
-                    except Exception:
-                        # If color parsing fails, default to black
-                        run.font.color.rgb = RGBColor(0, 0, 0)
-        
+        paragraphs = list(cell.paragraphs)
+
+        if text_content is not None and paragraphs:
+            _set_paragraph_text(paragraphs[0], str(text_content))
+
+        if patch:
+            for paragraph in paragraphs:
+                pieces = resolve(paragraph, 0, len(visible_text(paragraph)), operation="read")
+                apply_rpr(pieces, patch)
+
         return True
-        
+
+    except (ValueError, EngineError):
+        # A refused value or a refused range is something the caller can act
+        # on: it must reach them with its reason instead of becoming a bare
+        # False the tool layer would report as bad indices.
+        raise
     except Exception as e:
         print(f"Error formatting cell text: {e}")
         return False
@@ -756,18 +835,25 @@ def format_cell_text_by_position(table, row_index, col_index, text_content=None,
         color: Text color (hex string or color name)
         font_size: Font size in points
         font_name: Font name/family
-        
+
     Returns:
         True if successful, False otherwise
+
+    Raises:
+        ValueError, EngineError: propagated from :func:`format_cell_text` for a
+            value or a range it refuses, so the caller reports the reason
+            rather than an indices-are-probably-wrong guess.
     """
     try:
-        if (0 <= row_index < len(table.rows) and 
+        if (0 <= row_index < len(table.rows) and
             0 <= col_index < len(table.rows[row_index].cells)):
             cell = table.rows[row_index].cells[col_index]
-            return format_cell_text(cell, text_content, bold, italic, underline, 
+            return format_cell_text(cell, text_content, bold, italic, underline,
                                    color, font_size, font_name)
         else:
             return False
+    except (ValueError, EngineError):
+        raise
     except Exception as e:
         print(f"Error formatting cell text by position: {e}")
         return False
