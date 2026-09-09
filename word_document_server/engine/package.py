@@ -12,13 +12,29 @@ writer did not know about.
 Live XML parts
 --------------
 python-docx registers a part class for only a handful of content types
-(document, styles, numbering, settings, header, footer, image, ...).  Everything
-else -- ``footnotes.xml``, ``endnotes.xml``, ``comments.xml``,
-``commentsExtended.xml``, ``theme1.xml`` -- loads as a blob-backed ``Part``.
-Parsing such a part yields a *detached copy*: edits made on it are silently
-dropped at save time.  :class:`DocxPackage` therefore loads the package with a
-part factory that falls back to ``XmlPart`` for any ``+xml`` content type, so
-every root element this module hands out is the one that gets reserialized.
+(document, styles, numbering, settings, header, footer, core properties).
+Everything else -- ``footnotes.xml``, ``endnotes.xml``, ``comments.xml``,
+``commentsExtended.xml``, ``theme1.xml`` -- loads as a blob-backed ``Part``,
+whose parsed form is a *detached copy*: edits made on it are silently dropped at
+save time.  A part the engine has to edit must therefore be loaded as an
+``XmlPart``, whose root element is the one that gets reserialized.
+
+Loading a part live is not free, though.  ``docx.oxml.parser.oxml_parser`` is
+built with ``remove_blank_text=True``, so any part that goes through it comes
+back out reindented: the parts python-docx registers are written by python-docx
+in the first place and survive the trip unchanged, but ``theme1.xml``,
+``webSettings.xml``, ``fontTable.xml``, ``stylesWithEffects.xml``,
+``docProps/app.xml`` and ``customXml/*`` do not.  Reindenting a part the engine
+never edits breaks the fidelity contract at its floor -- a plain open/save would
+already rewrite six parts of every document.
+
+:class:`DocxPackage` therefore loads through an explicit whitelist,
+:data:`LIVE_CONTENT_TYPES`: the stories, the comment family and the two parts the
+formatting layer edits (styles, numbering).  Anything outside it that python-docx
+does not register stays an unparsed blob and is written back byte for byte.  Its
+XML is still readable through ``Part.blob`` -- a detached, read-only parse --
+while :meth:`DocxPackage.root_of` refuses it, because handing out a root that
+save would discard is the failure this module exists to prevent.
 
 Saving
 ------
@@ -49,6 +65,7 @@ from word_document_server.engine.errors import PackageError
 
 __all__ = [
     "COMMENTS_CONTENT_TYPE",
+    "LIVE_CONTENT_TYPES",
     "MAIN_STORY",
     "STORY_CONTENT_TYPES",
     "DocxPackage",
@@ -81,7 +98,37 @@ STORY_CONTENT_TYPES = frozenset(
 #: Content type of ``word/comments.xml``.
 COMMENTS_CONTENT_TYPE = _WML + "comments+xml"
 
+#: The comment family: ``comments.xml`` and the four side-car parts Word keeps in
+#: step with it.  ``ensure_part`` creates them and the comment tools edit them,
+#: which is only possible on a live part.
+_COMMENT_CONTENT_TYPES = frozenset(
+    {
+        COMMENTS_CONTENT_TYPE,
+        _WML + "commentsExtended+xml",
+        _WML + "commentsIds+xml",
+        _WML + "commentsExtensible+xml",
+        _WML + "people+xml",
+    }
+)
+
+#: Content types loaded as live :class:`~docx.opc.part.XmlPart` instances rather
+#: than as opaque blobs -- the parts the engine edits, and only those.  A part
+#: outside this set that python-docx does not register itself is never parsed, so
+#: :meth:`DocxPackage.save` writes it back exactly as it was read.  Adding a
+#: content type here is a fidelity decision: it makes every open/save reindent
+#: that part, so only add one the engine actually has to edit.
+LIVE_CONTENT_TYPES = (
+    STORY_CONTENT_TYPES
+    | _COMMENT_CONTENT_TYPES
+    | frozenset({_WML + "styles+xml", _WML + "numbering+xml"})
+)
+
 _XML_CONTENT_TYPES = frozenset({"application/xml", "text/xml"})
+
+
+def _is_xml_content_type(content_type: str) -> bool:
+    """Whether `content_type` names XML -- live or not."""
+    return content_type.endswith("+xml") or content_type in _XML_CONTENT_TYPES
 
 
 def story_name(partname: str) -> str:
@@ -141,14 +188,19 @@ def atomic_write_bytes(path: str | os.PathLike[str], data: bytes) -> None:
 
 
 class _EnginePartFactory(PartFactory):
-    """Part factory that keeps every XML part live rather than blob-backed."""
+    """Part factory that loads the parts of :data:`LIVE_CONTENT_TYPES` live.
+
+    Every other part keeps python-docx's own choice, and falls back to a plain
+    blob-backed :class:`~docx.opc.part.Part` -- unparsed on the way in, therefore
+    identical byte for byte on the way out.
+    """
 
     @classmethod
     def _part_cls_for(cls, content_type: str):
         registered = cls.part_type_for.get(content_type)
         if registered is not None:
             return registered
-        if content_type.endswith("+xml") or content_type in _XML_CONTENT_TYPES:
+        if content_type in LIVE_CONTENT_TYPES:
             return XmlPart
         return Part
 
@@ -263,12 +315,27 @@ class DocxPackage:
     def root_of(part: Part) -> etree._Element:
         """Return the live root element of an XML part.
 
+        Only the parts of :data:`LIVE_CONTENT_TYPES` (plus the ones python-docx
+        registers itself) are loaded live.  Any other XML part is held as an
+        unparsed blob so that saving reproduces it byte for byte; read it through
+        ``part.blob`` instead, and expect a detached, read-only parse.
+
         Raises:
-            PackageError: if `part` holds binary content (an image, a font).
+            PackageError: if `part` holds binary content (an image, a font), or
+                if it is an XML part that is not loaded live.
         """
-        if not isinstance(part, XmlPart):
-            raise PackageError(f"part {part.partname} is not an XML part ({part.content_type})")
-        return part.element
+        if isinstance(part, XmlPart):
+            return part.element
+        if _is_xml_content_type(part.content_type):
+            raise PackageError(
+                f"part {part.partname} is XML but is not loaded live "
+                f"({part.content_type}); it is kept as an unparsed blob so that "
+                "saving reproduces it byte for byte -- read part.blob instead"
+            )
+        raise PackageError(
+            f"part {part.partname} is binary, not XML ({part.content_type}); "
+            "read part.blob instead"
+        )
 
     def stories(self) -> list[tuple[str, etree._Element]]:
         """Return ``(story id, root element)`` for every story of the package.
