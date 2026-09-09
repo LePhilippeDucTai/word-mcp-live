@@ -31,7 +31,8 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 
 - Setup: `PATH="$HOME/.local/bin:$PATH" uv sync` · marker: `.venv/`
 - Test: `PATH="$HOME/.local/bin:$PATH" uv run pytest tests/ -q` · Build: `PATH="$HOME/.local/bin:$PATH" uv build` · Lint: `PATH="$HOME/.local/bin:$PATH" uv run ruff check .`
-- Baseline 2026-09-09: green — test : 1 passed (8 s) ; lint et build utilisables à partir de J01-P1 (ruff absent avant).
+- Baseline 2026-09-09: green — test : 1 passed (3 s, rejoué à la révision D-002) ; lint et build utilisables à partir de J01-P1 (ruff absent avant).
+- Lock: `PATH="$HOME/.local/bin:$PATH" uv lock --check` → 0 ; `uv.lock` régénéré le 2026-09-09 (périmé depuis v1.1.3, il se réécrivait à chaque `uv run`) ; un `uv run` ne doit plus modifier l'arbre.
 
 ## Milestones
 

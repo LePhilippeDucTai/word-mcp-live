@@ -102,18 +102,19 @@ files:
   - tests/live/test_mac_paths.py
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/live/test_mac_paths.py -q"
-  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -W error -c \"import word_document_server.tools.live_tools\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -W error -c \"import pathlib; compile(pathlib.Path('word_document_server/tools/live_tools.py').read_text(), 'live_tools.py', 'exec')\""
 ```
 
 ### Scope
 `live_layout_tools.py:47` : la branche macOS de `word_live_set_page_layout` transmet les paramètres `*_inches` existants convertis en points, comme la branche COM.
 `core/word_mac.py` : `import re` au niveau module (usage à `:1761`).
-`live_tools.py:195` : `highlight_color` entier converti en nom de couleur JXA avant `mac_format_text` ; docstring contenant `^\d` passée en chaîne brute (`SyntaxWarning`).
+`live_tools.py:195` : `highlight_color` entier converti en nom de couleur JXA avant `mac_format_text` ; docstring de `live_tools.py:544` contenant `^\d` passée en chaîne brute (`SyntaxWarning` ; l'acceptation compile depuis la source, un `.pyc` en cache masque l'avertissement à l'import).
 Tests : `_MAC_AVAILABLE` forcé à vrai, `_run_jxa`/`_run_applescript` bouchonnés pour capturer le script généré ; aucune exception, valeurs attendues présentes dans le script.
 Aucune autre modification des modules live.
 
 ### Context
 Preuves : rapport d'audit live (NameError `page_width`, NameError `re`, AttributeError `int.replace`). Décision D-001 : périmètre live limité à ces trois corrections.
+Bouchonnage : `_MAC_AVAILABLE` est défini par module (`tools/live_layout_tools.py:12`, `tools/live_tools.py:14`, `sys.platform == 'darwin'`) ; `_run_jxa` et `_run_applescript` vivent dans `core/word_mac.py:18,47` et les branches macOS importent `word_mac` à l'appel.
 
 ## J04-P5 — Lot atomique `doc_apply_edits`
 
@@ -149,7 +150,7 @@ files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine tests/tools tests/live tests/test_docs_sync.py tests/test_registry_consistency.py -q --timeout=60"
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run python scripts/gen_tools_md.py --check"
-  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -W error -c \"import word_document_server.tools.live_tools\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -W error -c \"import pathlib; compile(pathlib.Path('word_document_server/tools/live_tools.py').read_text(), 'live_tools.py', 'exec')\""
   - "PATH=\"$HOME/.local/bin:$PATH\" uv sync && PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/ -q"
   - "PATH=\"$HOME/.local/bin:$PATH\" uv build"
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run ruff check ."

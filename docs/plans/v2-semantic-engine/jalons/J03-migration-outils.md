@@ -166,7 +166,7 @@ id: J03-P7
 kind: implement
 tier: T4
 size: M
-depends_on: [J03-P4, J03-P5, J03-P6]
+depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6]
 files:
   - word_document_server/utils/save_utils.py
   - word_document_server/main.py

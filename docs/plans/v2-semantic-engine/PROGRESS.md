@@ -78,3 +78,4 @@ Updated 2026-09-09 · s0 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 ## Log
 
 - 2026-09-09 s0: plan created
+- 2026-09-09 s0: plan revised (D-002) — acceptations J02-P1/P7 (`zipfile`) et J04-P4/P6 (`SyntaxWarning`) corrigées ; J03-P7 dépend de J03-P1..P6 ; `uv.lock` régénéré (lock périmé qui se réécrivait à chaque `uv run`)

@@ -21,7 +21,8 @@ files:
   - tests/engine/test_ids.py
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine/test_package.py tests/engine/test_ids.py -q"
-  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import sys, word_document_server.engine.package, word_document_server.engine.ids; assert 'fastmcp' not in sys.modules and 'win32com' not in sys.modules and 'zipfile' not in sys.modules\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import sys, word_document_server.engine.package, word_document_server.engine.ids; assert 'fastmcp' not in sys.modules and 'win32com' not in sys.modules\""
+  - "! grep -rnE --include='*.py' '^[[:space:]]*(import zipfile|from zipfile)' word_document_server/engine/"
 ```
 
 ### Scope
@@ -163,7 +164,8 @@ depends_on: [J02-P1, J02-P2, J02-P3, J02-P4, J02-P5, J02-P6]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine -q --timeout=60"
-  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import sys, word_document_server.engine.package, word_document_server.engine.ids; assert 'fastmcp' not in sys.modules and 'win32com' not in sys.modules and 'zipfile' not in sys.modules\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import sys, word_document_server.engine.package, word_document_server.engine.ids; assert 'fastmcp' not in sys.modules and 'win32com' not in sys.modules\""
+  - "! grep -rnE --include='*.py' '^[[:space:]]*(import zipfile|from zipfile)' word_document_server/engine/"
   - "PATH=\"$HOME/.local/bin:$PATH\" uv sync && PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/ -q"
   - "PATH=\"$HOME/.local/bin:$PATH\" uv build"
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run ruff check ."
