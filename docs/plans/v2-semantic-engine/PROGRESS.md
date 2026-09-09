@@ -38,7 +38,7 @@ Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P3 | Commentaires et hyperliens sur le moteur | T3 | ✅ | 1 | fil Word complet (`commentsExtended`/`commentsIds`/`people`), hyperliens `add`/`remove`/`list` ; hors `files` : `parts=` élargi sur 1 assertion de `tests/characterization/test_existing_tools.py` |
 | J03-P4 | format_text et format_cell_text sans reconstruction | T3 | ✅ | 1 | `resolve`+`apply_rpr`, plus de `run.clear()` ; `resolve_color`/`run_patch` dans `core/tables.py` ; hors `files` : 1 xfail retiré dans `tests/characterization/test_existing_tools.py` |
 | J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⏸ | 0 | son acceptation inclut `tests/characterization`, rouge depuis J03-P2 |
-| J03-P6 | merge_documents par import d'éléments | T2 | 🔄 | 1 | |
+| J03-P6 | merge_documents par import d'éléments | T2 | ✅ | 1 | `append_document(target, source, page_break) -> Report` ; document fusionné = premier source (garde styles/sections/en-têtes) ; `copy_table` supprimé (plus d'appelant) ; refus explicite si commentaires/notes dans la source |
 | J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ⬜ | 0 | |
 | J03-P8 | Review J03 | T2 | ⬜ | 0 | |
 
