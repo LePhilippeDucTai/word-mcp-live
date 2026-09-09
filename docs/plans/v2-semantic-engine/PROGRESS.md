@@ -2,7 +2,7 @@
 
 Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
-## J01 — Harnais de fidélité documentaire (5/6)
+## J01 — Harnais de fidélité documentaire (6/6)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -11,7 +11,7 @@ Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P3 | Producteur LibreOffice et validateur de paquet | T4 | ✅ | 2 | review fix 1 : notes réservées par `w:type`, 6 tests positifs de corruption |
 | J01-P4 | Instantané canonique et comparaison | T3 | ✅ | 2 | review fix 1 : pPr, enfants de run, tblPr/trPr/tcPr, sdtPr ; index `story_root.iter(w:p)` |
 | J01-P5 | Caractérisation des outils existants | T4 | ✅ | 2 | review fix 1 : 4 bugs caractérisés (voir docs/audit/destructive-ops.md) |
-| J01-P6 | Review J01 | T2 | 🔄 | 1 | |
+| J01-P6 | Review J01 | T2 | ✅ | 1 | round 1 failed → 3 corrections ; round 2 done, 3 should-fix restants (D-004) |
 
 ## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (0/7)
 
@@ -71,11 +71,12 @@ Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 ## Next session
 
-- Ready: J01-P1
+- Ready: J02-P1
 - Orchestrator: opus/high
-- Decision: none
+- Decision: D-004 (zones aveugles restantes du harnais J01)
 
 ## Log
 
+- 2026-09-09 s1: J01 complet (P1..P6) ; revue round 1 en échec → corrections P3/P4/P5, round 2 sans finding bloquant ; D-003 (worktrees manuels) ; D-004 en attente
 - 2026-09-09 s0: plan created
 - 2026-09-09 s0: plan revised (D-002) — acceptations J02-P1/P7 (`zipfile`) et J04-P4/P6 (`SyntaxWarning`) corrigées ; J03-P7 dépend de J03-P1..P6 ; `uv.lock` régénéré (lock périmé qui se réécrivait à chaque `uv run`)
