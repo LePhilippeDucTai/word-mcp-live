@@ -1,10 +1,44 @@
 """
 Extended document utilities for Word Document Server.
 """
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any, Optional, Tuple
 from docx import Document
+from docx.oxml.ns import qn
 
 from word_document_server.utils.document_utils import get_effective_text
+from word_document_server.engine.find import find as engine_find
+from word_document_server.engine.package import DocxPackage
+from word_document_server.engine.textmodel import visible_text
+
+#: Characters of the paragraph's own text reported as ``context`` before the
+#: ellipsis, unchanged from the python-docx implementation this replaced.
+CONTEXT_CHARS = 100
+
+
+def _table_location(story_root, paragraph) -> Optional[str]:
+    """Describe a paragraph sitting in a table cell, or return ``None``.
+
+    The shape (``"Table 0, Row 1, Column 1"``) is the one the python-docx
+    implementation produced. The table number counts every ``w:tbl`` of the
+    story in document order, so a nested table has a number of its own instead
+    of being invisible the way ``Document.tables`` made it. Row and column
+    number the direct ``w:tr`` and ``w:tc`` children, i.e. the grid as written:
+    a horizontally merged cell occupies one column here, not the several
+    ``Row.cells`` expands it into.
+    """
+    cell = next(iter(paragraph.iterancestors(qn('w:tc'))), None)
+    if cell is None:
+        return None
+    row = next(iter(cell.iterancestors(qn('w:tr'))), None)
+    table = next(iter(cell.iterancestors(qn('w:tbl'))), None)
+    if row is None or table is None:
+        return None
+    tables = list(story_root.iter(qn('w:tbl')))
+    rows = table.findall(qn('w:tr'))
+    cells = row.findall(qn('w:tc'))
+    if table not in tables or row not in rows or cell not in cells:
+        return None
+    return f"Table {tables.index(table)}, Row {rows.index(row)}, Column {cells.index(cell)}"
 
 
 def get_paragraph_text(doc_path: str, paragraph_index: int) -> Dict[str, Any]:
@@ -44,127 +78,86 @@ def get_paragraph_text(doc_path: str, paragraph_index: int) -> Dict[str, Any]:
 def find_text(doc_path: str, text_to_find: str, match_case: bool = True, whole_word: bool = False) -> Dict[str, Any]:
     """
     Find all occurrences of specific text in a Word document.
-    
+
+    The search runs on the OOXML engine, on the *visible* text of every story of
+    the package -- body, headers, footers, footnotes, endnotes -- so an
+    occurrence is found wherever it reads: split across runs, inside a
+    hyperlink, a tracked insertion, a content control or a table cell. Text
+    hidden under a tracked deletion is not matched, because it is not what the
+    document says.
+
+    Each occurrence reports:
+
+    ``story``
+        the story it belongs to, named the way the package names it
+        (``"document"``, ``"header1"``, ``"footnotes"``, ...).
+    ``paragraph_index``
+        the paragraph's V2 index in that story, or ``None`` when the paragraph
+        is out of that index space (in a table cell or in a text box). A cell
+        paragraph carries ``location`` instead.
+    ``position``, ``start``, ``end``
+        character offsets in the paragraph's visible text; ``position`` repeats
+        ``start`` under its historical name.
+    ``text``
+        the matched text itself.
+    ``context``
+        the first :data:`CONTEXT_CHARS` characters of the paragraph, ellipsised.
+    ``match_context``
+        the text immediately around the match, centred on it.
+
     Args:
         doc_path: Path to the Word document
         text_to_find: Text to search for
         match_case: Whether to perform case-sensitive search
         whole_word: Whether to match whole words only
-    
+
     Returns:
         Dictionary with search results
     """
     import os
     if not os.path.exists(doc_path):
         return {"error": f"Document {doc_path} does not exist"}
-    
+
     if not text_to_find:
         return {"error": "Search text cannot be empty"}
-    
+
     try:
-        doc = Document(doc_path)
-        results = {
+        pkg = DocxPackage.open(doc_path)
+        story_roots = dict(pkg.stories())
+        matches = engine_find(
+            pkg,
+            text_to_find,
+            case=match_case,
+            whole_word=whole_word,
+            stories=list(story_roots),
+        )
+
+        occurrences: List[Dict[str, Any]] = []
+        for match in matches:
+            paragraph_text = visible_text(match.paragraph)
+            ellipsis = "..." if len(paragraph_text) > CONTEXT_CHARS else ""
+            occurrence: Dict[str, Any] = {
+                "story": match.story,
+                "paragraph_index": match.index,
+                "position": match.start,
+                "start": match.start,
+                "end": match.end,
+                "text": match.text,
+                "context": paragraph_text[:CONTEXT_CHARS] + ellipsis,
+                "match_context": match.context,
+            }
+            location = _table_location(story_roots[match.story], match.paragraph)
+            if location is not None:
+                occurrence["location"] = location
+            occurrences.append(occurrence)
+
+        return {
             "query": text_to_find,
             "match_case": match_case,
             "whole_word": whole_word,
-            "occurrences": [],
-            "total_count": 0
+            "occurrences": occurrences,
+            "total_count": len(occurrences),
         }
-        
-        # Search in paragraphs
-        for i, para in enumerate(doc.paragraphs):
-            # Prepare text for comparison — use get_effective_text for tracked-change support
-            effective = get_effective_text(para)
-            para_text = effective
-            search_text = text_to_find
-
-            if not match_case:
-                para_text = para_text.lower()
-                search_text = search_text.lower()
-
-            # Find all occurrences (simple implementation)
-            start_pos = 0
-            while True:
-                if whole_word:
-                    # For whole word search, we need to check word boundaries
-                    words = para_text.split()
-                    found = False
-                    for word_idx, word in enumerate(words):
-                        if (word == search_text or
-                            (not match_case and word.lower() == search_text.lower())):
-                            results["occurrences"].append({
-                                "paragraph_index": i,
-                                "position": word_idx,
-                                "context": effective[:100] + ("..." if len(effective) > 100 else "")
-                            })
-                            results["total_count"] += 1
-                            found = True
-
-                    # Break after checking all words
-                    break
-                else:
-                    # For substring search
-                    pos = para_text.find(search_text, start_pos)
-                    if pos == -1:
-                        break
-
-                    results["occurrences"].append({
-                        "paragraph_index": i,
-                        "position": pos,
-                        "context": effective[:100] + ("..." if len(effective) > 100 else "")
-                    })
-                    results["total_count"] += 1
-                    start_pos = pos + len(search_text)
-        
-        # Search in tables
-        for table_idx, table in enumerate(doc.tables):
-            for row_idx, row in enumerate(table.rows):
-                for col_idx, cell in enumerate(row.cells):
-                    for para_idx, para in enumerate(cell.paragraphs):
-                        # Prepare text for comparison
-                        effective = get_effective_text(para)
-                        para_text = effective
-                        search_text = text_to_find
-
-                        if not match_case:
-                            para_text = para_text.lower()
-                            search_text = search_text.lower()
-
-                        # Find all occurrences (simple implementation)
-                        start_pos = 0
-                        while True:
-                            if whole_word:
-                                # For whole word search, check word boundaries
-                                words = para_text.split()
-                                found = False
-                                for word_idx, word in enumerate(words):
-                                    if (word == search_text or
-                                        (not match_case and word.lower() == search_text.lower())):
-                                        results["occurrences"].append({
-                                            "location": f"Table {table_idx}, Row {row_idx}, Column {col_idx}",
-                                            "position": word_idx,
-                                            "context": effective[:100] + ("..." if len(effective) > 100 else "")
-                                        })
-                                        results["total_count"] += 1
-                                        found = True
-
-                                # Break after checking all words
-                                break
-                            else:
-                                # For substring search
-                                pos = para_text.find(search_text, start_pos)
-                                if pos == -1:
-                                    break
-
-                                results["occurrences"].append({
-                                    "location": f"Table {table_idx}, Row {row_idx}, Column {col_idx}",
-                                    "position": pos,
-                                    "context": effective[:100] + ("..." if len(effective) > 100 else "")
-                                })
-                                results["total_count"] += 1
-                                start_pos = pos + len(search_text)
-        
-        return results
     except Exception as e:
         return {"error": f"Failed to search for text: {str(e)}"}
 
