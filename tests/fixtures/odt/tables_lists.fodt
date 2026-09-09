@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fixture coverage: a two-column table and a bulleted list. Converted to
+     .docx via LibreOffice by tests/support/libreoffice.py. -->
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+    xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+    xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0"
+    xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0"
+    xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0"
+    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:meta="urn:oasis:names:tc:opendocument:xmlns:meta:1.0"
+    xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0"
+    xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0"
+    xmlns:ooo="http://openoffice.org/2004/office"
+    office:version="1.2" office:mimetype="application/vnd.oasis.opendocument.text">
+ <office:styles>
+  <style:style style:name="Standard" style:family="paragraph" style:class="text"/>
+ </office:styles>
+ <office:automatic-styles>
+  <style:style style:name="Table1" style:family="table">
+   <style:table-properties style:width="15.24cm" table:align="left"/>
+  </style:style>
+  <style:style style:name="Table1.A" style:family="table-column">
+   <style:table-column-properties style:column-width="7.62cm"/>
+  </style:style>
+  <style:style style:name="Table1.B" style:family="table-column">
+   <style:table-column-properties style:column-width="7.62cm"/>
+  </style:style>
+  <style:style style:name="Table1.1" style:family="table-row">
+   <style:table-row-properties fo:keep-together="auto"/>
+  </style:style>
+  <style:style style:name="Table1.A1" style:family="table-cell">
+   <style:table-cell-properties fo:padding="0.1cm" fo:border="0.05pt solid #000000"/>
+  </style:style>
+  <text:list-style style:name="L1">
+   <text:list-level-style-bullet text:level="1" text:bullet-char="&#8226;">
+    <style:list-level-properties text:list-level-position-and-space-mode="label-alignment">
+     <style:list-level-label-alignment text:label-followed-by="listtab" text:list-tab-stop-position="0.5cm" fo:text-indent="-0.25cm" fo:margin-left="0.5cm"/>
+    </style:list-level-properties>
+   </text:list-level-style-bullet>
+  </text:list-style>
+ </office:automatic-styles>
+ <office:body>
+  <office:text>
+   <text:p text:style-name="Standard">A table and a bulleted list.</text:p>
+   <table:table table:name="Table1" table:style-name="Table1">
+    <table:table-column table:style-name="Table1.A"/>
+    <table:table-column table:style-name="Table1.B"/>
+    <table:table-row table:style-name="Table1.1">
+     <table:table-cell table:style-name="Table1.A1" office:value-type="string">
+      <text:p text:style-name="Standard">Header A</text:p>
+     </table:table-cell>
+     <table:table-cell table:style-name="Table1.A1" office:value-type="string">
+      <text:p text:style-name="Standard">Header B</text:p>
+     </table:table-cell>
+    </table:table-row>
+    <table:table-row table:style-name="Table1.1">
+     <table:table-cell table:style-name="Table1.A1" office:value-type="string">
+      <text:p text:style-name="Standard">Row 1 A</text:p>
+     </table:table-cell>
+     <table:table-cell table:style-name="Table1.A1" office:value-type="string">
+      <text:p text:style-name="Standard">Row 1 B</text:p>
+     </table:table-cell>
+    </table:table-row>
+   </table:table>
+   <text:list text:style-name="L1">
+    <text:list-item>
+     <text:p text:style-name="Standard">First item</text:p>
+    </text:list-item>
+    <text:list-item>
+     <text:p text:style-name="Standard">Second item</text:p>
+    </text:list-item>
+    <text:list-item>
+     <text:p text:style-name="Standard">Third item</text:p>
+    </text:list-item>
+   </text:list>
+  </office:text>
+ </office:body>
+</office:document>
