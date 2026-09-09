@@ -36,6 +36,16 @@ requires_libreoffice = pytest.mark.skipif(
 def convert(src: Path, fmt: str, outdir: Path, timeout: int = 120) -> Path:
     """Convert `src` to `fmt` with LibreOffice headless, writing into `outdir`.
 
+    Each call gets its own disposable user profile via
+    `-env:UserInstallation=`. Without this, concurrent `soffice` invocations
+    on the same machine share `~/.config/libreoffice`: soffice detects the
+    existing instance for that profile, attaches to it, and exits 0 without
+    converting anything, so a caller other than the one that "won" the
+    instance gets a missing output file. A fresh, unique profile per call
+    forces each conversion to start its own isolated instance, so concurrent
+    conversions cannot collide. The profile directory is removed again once
+    the call is done, on every exit path.
+
     Returns the path to the produced file. Raises RuntimeError if soffice is
     missing, the conversion process fails, or the output file is missing or
     empty.
@@ -48,35 +58,40 @@ def convert(src: Path, fmt: str, outdir: Path, timeout: int = 120) -> Path:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    result = subprocess.run(
-        [
-            soffice,
-            "--headless",
-            "--norestore",
-            "--convert-to", fmt,
-            "--outdir", str(outdir),
-            str(src),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"soffice conversion of {src} to {fmt} failed "
-            f"(exit {result.returncode}): {result.stderr or result.stdout}"
+    profile_dir = tempfile.mkdtemp(prefix="soffice-profile-")
+    try:
+        result = subprocess.run(
+            [
+                soffice,
+                "--headless",
+                "--norestore",
+                f"-env:UserInstallation={Path(profile_dir).as_uri()}",
+                "--convert-to", fmt,
+                "--outdir", str(outdir),
+                str(src),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
         )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"soffice conversion of {src} to {fmt} failed "
+                f"(exit {result.returncode}): {result.stderr or result.stdout}"
+            )
 
-    out_path = outdir / f"{src.stem}.{fmt}"
-    if not out_path.exists():
-        raise RuntimeError(
-            f"soffice reported success but did not produce {out_path} "
-            f"(stdout: {result.stdout})"
-        )
-    if out_path.stat().st_size == 0:
-        raise RuntimeError(f"soffice produced an empty file: {out_path}")
-    return out_path
+        out_path = outdir / f"{src.stem}.{fmt}"
+        if not out_path.exists():
+            raise RuntimeError(
+                f"soffice reported success but did not produce {out_path} "
+                f"(stdout: {result.stdout})"
+            )
+        if out_path.stat().st_size == 0:
+            raise RuntimeError(f"soffice produced an empty file: {out_path}")
+        return out_path
+    finally:
+        shutil.rmtree(profile_dir, ignore_errors=True)
 
 
 def fodt_to_docx(name: str, cache_dir: Path) -> Path:
