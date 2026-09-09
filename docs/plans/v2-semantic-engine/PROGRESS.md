@@ -1,6 +1,6 @@
 # PROGRESS — v2-semantic-engine
 
-Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
+Updated 2026-09-10 · s5 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
 ## J01 — Harnais de fidélité documentaire (7/7)
 
@@ -29,7 +29,7 @@ Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J02-P10 | Correctif D-009 : index V2 sans zones de texte, tracked_insert sans sortie de conteneur, réexports | T3 | ✅ | 1 | corrective D-009 ; fixtures `text_boxes` et `tracked_containers` ; repousse du `w:ins` dans le conteneur ; hors périmètre de J02-P7 (close), relue par J03-P8 ; suite 780 → 830 passed, 9 xfailed |
 | J02-P7 | Review J02 | T2 | ✅ | 1 | round 1 sans finding bloquant ; 780 passed / 9 xfailed, build et lint verts ; 2 should-fix + 1 optional → D-009 |
 
-## J03 — Migration des outils existants sur le cœur (7/10)
+## J03 — Migration des outils existants sur le cœur (9/10)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -77,12 +77,14 @@ Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 ## Next session
 
-- Ready: J03-P1, J03-P2, J03-P3, J03-P4 (`depends_on: []`, fichiers disjoints — une vague de 4). Puis J03-P5 (après P1), J03-P6 (après P4), J03-P7, J03-P8.
+- Ready: J03-P8 (revue J03, T2, tourne seule ; relit aussi J02-P10) — première chose à lancer. Puis, si la revue est sans finding bloquant, merge de `v2-semantic-engine` sur `main` (D-014) avant d'ouvrir J04.
+- Puis J04-P1..P5 (J04-P1 et J04-P2 d'abord, `depends_on` sur J03), J04-P6 en revue.
 - Orchestrator: opus/high
-- Decision: none (D-009 tranchée en séance en s3)
+- Decision: none
 
 ## Log
 
+- 2026-09-10 s5: reprise de la s4 coupée en vol (PROGRESS.md non commité, worktree J03-P5 sans commit → essai 1 compté, 775 insertions sauvées en patch) ; D-013 tranchée au démarrage → +J03-P10 ✅ (profil `soffice` jetable, faux rouge sous parallélisme corrigé) ; J03-P5 ✅ en essai 2 (patch de reprise relu, 4 défauts réels corrigés) ; J03-P7 ✅ (hook de sauvegarde supprimé, écritures atomiques, `msoffcrypto.exceptions.InvalidFormatError` inexistant corrigé) ; **J03 à 9/10, seule la revue J03-P8 reste** ; suite 830 → 1087 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; D-014 (user) : `main` intact jusqu'à la revue
 - 2026-09-09 s3: J02-P9 et J02-P7 (revue J02, round 1 sans finding bloquant) ✅ ; D-009 tranchée en séance sur les 2 should-fix de la revue (run sur conteneur sorti de son `w:hyperlink`/`w:sdt` par `tracked_insert`, index V2 faussé par les zones de texte) → +J02-P10 ✅ ; **J02 complet (10/10)** ; suite 775 → 830 passed, 9 xfailed
 - 2026-09-09 s2 (clôture): D-005 (lecture mécanique des champs imbriqués), D-006 (alias "body", index V2 None en cellule ; vocabulaire J03/J04 aligné), D-008 (+J02-P9) tranchées
 - 2026-09-09 s2: J01-P7, J02-P1..P6 et J02-P8 ✅ ; D-007 tranchée en séance (assertions `is_empty` vides + aller-retour `open`/`save` non neutre) → +J02-P8, aller-retour neutre 19/19 ; suite 1 → 775 passed ; J02-P7 coupée par une limite Opus, try rendu
