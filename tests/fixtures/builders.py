@@ -72,6 +72,8 @@ _NAMESPACES = {
     "a": "http://schemas.openxmlformats.org/drawingml/2006/main",
     "pic": "http://schemas.openxmlformats.org/drawingml/2006/picture",
     "mc": "http://schemas.openxmlformats.org/markup-compatibility/2006",
+    "v": "urn:schemas-microsoft-com:vml",
+    "wps": "http://schemas.microsoft.com/office/word/2010/wordprocessingShape",
 }
 
 _ROOT_TAG_RE = re.compile(r"^<([A-Za-z0-9_:.-]+)")
@@ -1075,6 +1077,159 @@ def _populate_content_controls(doc) -> None:
     )
 
 
+def _populate_text_boxes(doc) -> None:
+    """A VML text box and a DrawingML one, each holding a paragraph.
+
+    ``w:pict``, ``w:drawing`` and ``mc:AlternateContent`` are opaque to
+    :mod:`~word_document_server.engine.textmodel`, so the text of a box never
+    joins the flow of the paragraph that anchors it -- each anchor reads as its
+    own words alone.  The paragraphs *inside* the boxes are still real ``w:p``
+    elements, which is the point: they must be walked by ``iter_paragraphs``
+    and left out of the V2 index.  Each shape closes its anchoring paragraph,
+    so no range of that paragraph's text ever covers the opaque object.
+    """
+    doc.add_heading("Fixture: text boxes", level=1)
+    _append_body(
+        doc,
+        "<w:p><w:r><w:t>Body text before the boxes.</w:t></w:r></w:p>",
+        # VML text box: the shape Word writes for a legacy text box.
+        """
+        <w:p>
+          <w:r><w:t>Anchor of the VML box.</w:t></w:r>
+          <w:r>
+            <w:pict>
+              <v:shape id="FixtureVmlBox" style="width:180pt;height:36pt">
+                <v:textbox>
+                  <w:txbxContent>
+                    <w:p><w:r><w:t>Text inside the VML text box.</w:t></w:r></w:p>
+                  </w:txbxContent>
+                </v:textbox>
+              </v:shape>
+            </w:pict>
+          </w:r>
+        </w:p>
+        """,
+        # DrawingML text box: the modern shape, with the VML fallback Word
+        # keeps beside it.  Both branches carry a paragraph, so this single
+        # anchor contributes two paragraphs to a plain ``//w:p`` walk.
+        """
+        <w:p>
+          <w:r><w:t>Anchor of the DrawingML box.</w:t></w:r>
+          <w:r>
+            <mc:AlternateContent>
+              <mc:Choice Requires="wps">
+                <w:drawing>
+                  <wp:inline distT="0" distB="0" distL="0" distR="0">
+                    <wp:extent cx="2286000" cy="457200"/>
+                    <wp:docPr id="960" name="Fixture DrawingML text box"/>
+                    <a:graphic>
+                      <a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">
+                        <wps:wsp>
+                          <wps:cNvSpPr txBox="1"/>
+                          <wps:spPr>
+                            <a:xfrm>
+                              <a:off x="0" y="0"/>
+                              <a:ext cx="2286000" cy="457200"/>
+                            </a:xfrm>
+                            <a:prstGeom prst="rect"><a:avLst/></a:prstGeom>
+                          </wps:spPr>
+                          <wps:txbx>
+                            <w:txbxContent>
+                              <w:p><w:r><w:t>Text inside the DrawingML text box.</w:t></w:r></w:p>
+                            </w:txbxContent>
+                          </wps:txbx>
+                          <wps:bodyPr rot="0" anchor="t"/>
+                        </wps:wsp>
+                      </a:graphicData>
+                    </a:graphic>
+                  </wp:inline>
+                </w:drawing>
+              </mc:Choice>
+              <mc:Fallback>
+                <w:pict>
+                  <v:shape id="FixtureFallbackBox" style="width:180pt;height:36pt">
+                    <v:textbox>
+                      <w:txbxContent>
+                        <w:p><w:r><w:t>Text inside the DrawingML fallback.</w:t></w:r></w:p>
+                      </w:txbxContent>
+                    </v:textbox>
+                  </v:shape>
+                </w:pict>
+              </mc:Fallback>
+            </mc:AlternateContent>
+          </w:r>
+        </w:p>
+        """,
+        "<w:p><w:r><w:t>Body text after the boxes.</w:t></w:r></w:p>",
+    )
+
+
+def _populate_tracked_containers(doc) -> None:
+    """Insertions that wrap an inline container, and the form Word writes.
+
+    The first two paragraphs are the shape a naive split breaks: a ``w:ins``
+    holding a whole ``w:hyperlink`` or a whole ``w:sdt``.  Recording a second
+    author's insertion inside one of them must leave the container standing --
+    a hyperlink cut in two is two hyperlinks.  The third paragraph is the form
+    Word itself writes, ``w:hyperlink/w:ins``, which nothing has to fix.
+    """
+    stamp = f'w:author="{FIXED_AUTHOR}" w:date="{FIXED_DATE}"'
+    wrapped_id = doc.part.relate_to(
+        "https://example.org/tracked-link", RT.HYPERLINK, is_external=True
+    )
+    hosting_id = doc.part.relate_to(
+        "https://example.org/tracked-host", RT.HYPERLINK, is_external=True
+    )
+    doc.add_heading("Fixture: tracked containers", level=1)
+    _append_body(
+        doc,
+        f"""
+        <w:p>
+          <w:r><w:t xml:space="preserve">An inserted link: </w:t></w:r>
+          <w:ins w:id="401" {stamp}>
+            <w:hyperlink r:id="{wrapped_id}" w:history="1">
+              <w:r><w:t xml:space="preserve">first half </w:t></w:r>
+              <w:r><w:t>second half</w:t></w:r>
+            </w:hyperlink>
+          </w:ins>
+          <w:r><w:t>.</w:t></w:r>
+        </w:p>
+        """,
+        f"""
+        <w:p>
+          <w:r><w:t xml:space="preserve">An inserted control: </w:t></w:r>
+          <w:ins w:id="402" {stamp}>
+            <w:sdt>
+              <w:sdtPr>
+                <w:alias w:val="Fixture tracked control"/>
+                <w:tag w:val="fixture-tracked"/>
+                <w:id w:val="403"/>
+                <w:text/>
+              </w:sdtPr>
+              <w:sdtContent>
+                <w:r><w:t xml:space="preserve">controlled start </w:t></w:r>
+                <w:r><w:t>controlled end</w:t></w:r>
+              </w:sdtContent>
+            </w:sdt>
+          </w:ins>
+          <w:r><w:t>.</w:t></w:r>
+        </w:p>
+        """,
+        f"""
+        <w:p>
+          <w:r><w:t xml:space="preserve">A link holding an insertion: </w:t></w:r>
+          <w:hyperlink r:id="{hosting_id}" w:history="1">
+            <w:ins w:id="404" {stamp}>
+              <w:r><w:t xml:space="preserve">linked start </w:t></w:r>
+              <w:r><w:t>linked end</w:t></w:r>
+            </w:ins>
+          </w:hyperlink>
+          <w:r><w:t>.</w:t></w:r>
+        </w:p>
+        """,
+    )
+
+
 def _populate_drawings(doc) -> None:
     """Inline images, each carrying its own drawing relationship."""
     doc.add_heading("Fixture: drawings", level=1)
@@ -1205,6 +1360,16 @@ def build_drawings() -> bytes:
     return _build(_populate_drawings)
 
 
+def build_text_boxes() -> bytes:
+    """A VML text box and a DrawingML one, both holding paragraphs."""
+    return _build(_populate_text_boxes)
+
+
+def build_tracked_containers() -> bytes:
+    """Insertions wrapping a hyperlink and a content control."""
+    return _build(_populate_tracked_containers)
+
+
 def build_combined() -> bytes:
     """Every feature above in a single document."""
     return _build(_populate_combined)
@@ -1230,6 +1395,11 @@ ALL_FIXTURES: dict[str, Callable[[], bytes]] = {
     "sections": build_sections,
     "content_controls": build_content_controls,
     "drawings": build_drawings,
+    # Added by J02-P10, deliberately outside ``combined``: the expectations
+    # ``combined`` is pinned against are frozen, and these two exist to be read
+    # on their own.
+    "text_boxes": build_text_boxes,
+    "tracked_containers": build_tracked_containers,
     "combined": build_combined,
 }
 

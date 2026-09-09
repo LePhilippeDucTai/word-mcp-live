@@ -28,7 +28,7 @@ from functools import cache
 import pytest
 from lxml import etree
 
-from tests.fixtures.builders import build
+from tests.fixtures.builders import FIXED_AUTHOR, build
 from tests.support.package_check import validate_package
 from tests.support.snapshot import assert_unchanged_except, diff, snapshot
 from word_document_server.engine.errors import (
@@ -413,6 +413,170 @@ def test_tracked_insert_refuses_to_write_inside_deleted_content() -> None:
 
 
 # --------------------------------------------------------------------------------------
+# tracked_insert inside an inline container
+# --------------------------------------------------------------------------------------
+
+
+def content_text(container: etree._Element) -> str:
+    """Every character `container` holds, shown or hidden, in document order."""
+    return "".join(node.text or "" for node in container.iter(qn("w:t"), qn("w:delText")))
+
+
+def sole(paragraph: etree._Element, tag: str) -> etree._Element:
+    """The one element tagged `tag` anywhere under `paragraph`."""
+    [found] = paragraph.findall(f".//{tag}")
+    return found
+
+
+def content_of(container: etree._Element) -> etree._Element:
+    """Where an inline container keeps its content, ``w:sdtContent`` included."""
+    found = container.find(qn("w:sdtContent"))
+    return container if found is None else found
+
+
+def canonical_of(element: etree._Element | None) -> str:
+    """Canonical XML of `element`, ``""`` when there is none."""
+    if element is None:
+        return ""
+    return etree.tostring(element, method="c14n", exclusive=True).decode()
+
+
+#: The three paragraphs of the ``tracked_containers`` fixture: body index, the
+#: container tag, and the two halves of its content the second author types
+#: between.  The first two are the shape a naive split breaks (``w:ins`` around
+#: the container), the third is the form Word writes (container around
+#: ``w:ins``) and must come out of this unchanged in shape.
+CONTAINER_CASES = [
+    ("ins-around-hyperlink", 1, qn("w:hyperlink"), "first half ", "second half"),
+    ("ins-around-sdt", 2, qn("w:sdt"), "controlled start ", "controlled end"),
+    ("hyperlink-around-ins", 3, qn("w:hyperlink"), "linked start ", "linked end"),
+]
+
+
+def container_case(index: int, tag: str, tail: str):
+    """Open ``tracked_containers`` and locate one case: package, paragraph, ..."""
+    pkg = DocxPackage.open(untouched_bytes("tracked_containers"))
+    paragraph = paragraphs_of(pkg)[index]
+    container = sole(paragraph, tag)
+    return pkg, paragraph, container, visible_text(paragraph).index(tail)
+
+
+@pytest.mark.parametrize(("label", "index", "tag", "head", "tail"), CONTAINER_CASES)
+def test_tracked_insert_inside_a_container_never_takes_a_run_out_of_it(
+    label: str, index: int, tag: str, head: str, tail: str
+) -> None:
+    pkg, paragraph, container, at = container_case(index, tag, tail)
+    text = visible_text(paragraph)
+    attributes = dict(container.attrib)
+    properties_before = canonical_of(container.find(qn("w:sdtPr")))
+
+    created = tracked_insert(pkg, paragraph, at, "NEW ", AUTHOR, STAMP)
+
+    assert visible_text(paragraph) == text[:at] + "NEW " + text[at:], label
+    # One container, the very same element, with its identity intact: the
+    # r:id of a hyperlink and the w:sdtPr/w:id of a control are what a reader
+    # follows, and a clone of either would be a second link or a second control.
+    assert paragraph.findall(f".//{tag}") == [container], label
+    assert dict(container.attrib) == attributes, label
+    assert canonical_of(container.find(qn("w:sdtPr"))) == properties_before, label
+    # The new run went *into* the container, and nothing came out of it.
+    assert content_text(container) == head + "NEW " + tail, label
+    # Three insertions, three authors, three ids, and never one inside another.
+    assert [
+        (item.author, item.text)
+        for item in list_revisions(pkg)
+        if item.paragraph_index == index
+    ] == [(FIXED_AUTHOR, head), (AUTHOR, "NEW "), (FIXED_AUTHOR, tail)], label
+    assert len(set(all_annotation_ids(pkg))) == len(all_annotation_ids(pkg)), label
+    assert all(element.find(f".//{W_INS}") is None for element in paragraph.iter(W_INS)), label
+    assert [element.get(W_AUTHOR) for element in created] == [AUTHOR], label
+    assert created[0].getparent() is content_of(container), label
+
+
+@pytest.mark.parametrize(("label", "index", "tag", "head", "tail"), CONTAINER_CASES)
+def test_rejecting_then_accepting_around_a_container_leaves_it_standing(
+    label: str, index: int, tag: str, head: str, tail: str, tmp_path
+) -> None:
+    pkg, paragraph, container, at = container_case(index, tag, tail)
+    text = visible_text(paragraph)
+
+    created = tracked_insert(pkg, paragraph, at, "NEW ", AUTHOR, STAMP)
+    reject(pkg, ids=ids_of(created))
+
+    # The reading is back, the container is still one element holding all of
+    # its text, and only the fixture's own insertion is left -- as two halves,
+    # which is the documented price of not splitting the container.
+    assert visible_text(paragraph) == text, label
+    assert paragraph.findall(f".//{tag}") == [container], label
+    assert content_text(container) == head + tail, label
+    assert [
+        (item.author, item.text)
+        for item in list_revisions(pkg)
+        if item.paragraph_index == index
+    ] == [(FIXED_AUTHOR, head), (FIXED_AUTHOR, tail)], label
+
+    accept(pkg)
+
+    assert list_revisions(pkg) == [], label
+    assert visible_text(paragraph) == text, label
+    assert paragraph.findall(f".//{tag}") == [container], label
+    assert content_text(container) == head + tail, label
+    assert validate_package(pkg.save(tmp_path / f"{label}.docx")) == [], label
+
+
+@pytest.mark.parametrize(("label", "index", "tag", "head", "tail"), CONTAINER_CASES)
+def test_an_insertion_into_a_container_disturbs_no_other_paragraph(
+    label: str, index: int, tag: str, head: str, tail: str
+) -> None:
+    reference = snapshot(untouched_bytes("tracked_containers"))
+    pkg, paragraph, _, at = container_case(index, tag, tail)
+
+    tracked_insert(pkg, paragraph, at, "NEW ", AUTHOR, STAMP)
+
+    assert_unchanged_except(
+        reference,
+        snapshot(pkg.to_bytes()),
+        paragraphs={index},
+        counters={"revisions"},
+    )
+
+
+def test_tracked_insert_by_the_author_of_the_container_insertion_splits_nothing() -> None:
+    pkg, paragraph, container, at = container_case(1, qn("w:hyperlink"), "second half")
+    text = visible_text(paragraph)
+
+    created = tracked_insert(pkg, paragraph, at, "NEW ", FIXED_AUTHOR, STAMP)
+
+    # The text joins the insertion that already attributes it to this author:
+    # nothing to split, so the fixture's single w:ins is untouched.
+    assert created == ()
+    assert ids_of(paragraph.iter(W_INS)) == [401]
+    assert paragraph.findall(f".//{qn('w:hyperlink')}") == [container]
+    assert visible_text(paragraph) == text[:at] + "NEW " + text[at:]
+
+
+def test_tracked_insert_inside_a_smart_tag_pushes_the_insertion_into_it() -> None:
+    pkg, paragraph = hosted(
+        f'<w:ins w:id="900" w:author="{OTHER}" w:date="{STAMP}">'
+        '<w:smartTag w:uri="urn:fixture" w:element="place">'
+        '<w:smartTagPr><w:attr w:name="fixture" w:val="1"/></w:smartTagPr>'
+        "<w:r><w:t>abc</w:t></w:r><w:r><w:t>def</w:t></w:r>"
+        "</w:smartTag></w:ins>"
+    )
+
+    created = tracked_insert(pkg, paragraph, 3, "XY", AUTHOR, STAMP)
+
+    tag = paragraph.find(qn("w:smartTag"))
+    assert names(paragraph) == ["smartTag"]
+    # The properties of the smart tag are not content: they stay outside every
+    # insertion, and the three stretches of content each carry their own.
+    assert names(tag) == ["smartTagPr", "ins", "ins", "ins"]
+    assert [element.get(W_AUTHOR) for element in tag.findall(W_INS)] == [OTHER, AUTHOR, OTHER]
+    assert created == (tag.findall(W_INS)[1],)
+    assert visible_text(paragraph) == "abcXYdef"
+
+
+# --------------------------------------------------------------------------------------
 # tracked_replace
 # --------------------------------------------------------------------------------------
 
@@ -479,6 +643,27 @@ def test_tracked_replace_leaves_a_package_every_checker_still_accepts(tmp_path) 
 
     path = pkg.save(tmp_path / "replaced.docx")
     assert validate_package(path) == []
+
+
+def test_tracked_replace_inside_a_container_keeps_every_run_in_it() -> None:
+    pkg, paragraph, link, _ = container_case(1, qn("w:hyperlink"), "first half ")
+    text = visible_text(paragraph)
+    start = text.index("first half")
+    end = start + len("first half")
+
+    created = tracked_replace(pkg, paragraph, start, end, "other half", AUTHOR, STAMP)
+
+    assert visible_text(paragraph) == text[:start] + "other half" + text[end:]
+    # The link is still one element, and it still holds every character of the
+    # range -- the deleted one included, since a deletion hides text, not runs.
+    assert paragraph.findall(f".//{qn('w:hyperlink')}") == [link]
+    assert content_text(link) == "first halfother half second half"
+
+    reject(pkg, ids=ids_of(created))
+
+    assert visible_text(paragraph) == text
+    assert paragraph.findall(f".//{qn('w:hyperlink')}") == [link]
+    assert content_text(link) == "first half second half"
 
 
 # --------------------------------------------------------------------------------------
@@ -586,6 +771,31 @@ def test_list_revisions_reports_no_index_for_a_paragraph_in_a_table_cell() -> No
     assert len(found) == 1
     assert found[0].story == "document"
     assert found[0].paragraph_index is None
+
+
+def test_list_revisions_reports_no_index_for_a_revision_inside_a_text_box() -> None:
+    pkg = DocxPackage.open(untouched_bytes("text_boxes"))
+    inside = next(
+        paragraph
+        for paragraph in paragraphs_of(pkg)
+        if visible_text(paragraph) == "Text inside the VML text box."
+    )
+    anchor = next(
+        paragraph
+        for paragraph in paragraphs_of(pkg)
+        if visible_text(paragraph) == "Body text after the boxes."
+    )
+    tracked_insert(pkg, inside, 0, "Boxed ", AUTHOR, STAMP)
+    tracked_insert(pkg, anchor, 0, "Flowing ", AUTHOR, STAMP)
+
+    found = list_revisions(pkg)
+
+    # The text box is out of the V2 index space; the body paragraph that follows
+    # it is not, and its own number is unaffected by the box.
+    assert [(item.text, item.paragraph_index) for item in found] == [
+        ("Boxed ", None),
+        ("Flowing ", 4),
+    ]
 
 
 def test_list_revisions_covers_every_story() -> None:
