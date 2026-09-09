@@ -333,7 +333,7 @@ def register_tools():
         annotations=ToolAnnotations(
             title="Format Text",
             readOnlyHint=False,
-            destructiveHint=False,
+            destructiveHint=True,
         ),
         description=format_tools.format_text.__doc__,
     )
@@ -1890,7 +1890,8 @@ def register_tools():
         ),
     )
     def add_table_of_contents(filename: str, title: str = "Table of Contents", max_level: int = 3):
-        """Add a table of contents based on heading styles."""
+        """DESTRUCTIVE: rebuilds the document from plain text (formatting, images, fields, comments, footnotes and sections are lost); scheduled for rewrite.
+        Add a table of contents based on heading styles."""
         return content_tools.add_table_of_contents(filename, title, max_level)
 
     @mcp.tool(
@@ -1900,7 +1901,8 @@ def register_tools():
         ),
     )
     def merge_documents(target_filename: str, source_filenames: list[str], add_page_breaks: bool = True):
-        """Merge multiple Word documents into a single target document."""
+        """DESTRUCTIVE: rebuilds the document from plain text (formatting, images, fields, comments, footnotes and sections are lost); scheduled for rewrite.
+        Merge multiple Word documents into a single target document."""
         return document_tools.merge_documents(target_filename, source_filenames, add_page_breaks)
 
     @mcp.tool(

@@ -24,9 +24,17 @@ dependencies = [
     "fastmcp>=2.8.1",
     "msoffcrypto-tool>=5.4.2",
     "docx2pdf>=0.1.8",
-    "pytest>=8.4.2",
+    "lxml>=5",
+    "python-dotenv",
     "pywin32>=306; sys_platform == 'win32'",
     "Pillow>=10.0.0; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-timeout",
+    "ruff",
 ]
 
 [project.urls]
@@ -44,3 +52,26 @@ sources = ["."]
 
 [project.scripts]
 word_mcp_server = "word_document_server.main:run_server"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "libreoffice: requires a LibreOffice installation",
+    "characterization: characterization tests pinning existing behavior",
+]
+timeout = 120
+
+[tool.ruff]
+target-version = "py311"
+include = [
+    "word_document_server/engine/**/*.py",
+    "tests/**/*.py",
+    "scripts/**/*.py",
+]
+
+[tool.ruff.lint]
+# N999: the project root ships an __init__.py, so ruff treats the checkout
+# directory name as the top-level package name; that name is not under our
+# control (worktree/repo directory names contain dashes) and isn't a code
+# quality issue.
+ignore = ["N999"]

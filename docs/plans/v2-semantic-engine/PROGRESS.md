@@ -1,12 +1,12 @@
 # PROGRESS — v2-semantic-engine
 
-Updated 2026-09-09 · s0 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
+Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
-## J01 — Harnais de fidélité documentaire (0/6)
+## J01 — Harnais de fidélité documentaire (1/6)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
-| J01-P1 | Outillage : pytest, groupe dev, ruff, script de vérification, avertissements destructifs | T5 | ⬜ | 0 | |
+| J01-P1 | Outillage : pytest, groupe dev, ruff, script de vérification, avertissements destructifs | T5 | ✅ | 1 | conflit uv.lock (base de worktree périmée, D-003) : try rendu |
 | J01-P2 | Fixtures générées : constructeur OOXML déterministe | T3 | ⬜ | 0 | |
 | J01-P3 | Producteur LibreOffice et validateur de paquet | T4 | ⬜ | 0 | |
 | J01-P4 | Instantané canonique et comparaison | T3 | ⬜ | 0 | |
