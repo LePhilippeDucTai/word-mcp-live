@@ -518,17 +518,12 @@ def test_reject_tracked_changes_does_not_merge_an_inserted_paragraph_mark(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "format_text clears every run of the paragraph (run.clear()) and "
-        "rebuilds it as before/target/after runs: formatting of text outside "
-        "the requested range (bold 'bold ', italic 'bold italic ', the "
-        "fr-FR run) is lost, not just left alone. Already flagged "
-        "DESTRUCTIVE in the tool docstring (J01-P1)."
-    ),
-)
-def test_format_text_destroys_untouched_run_formatting(combined_path):
+# Was xfail(strict=True) until J03-P4: format_text used to clear every run of
+# the paragraph (run.clear()) and rebuild it as before/target/after runs, which
+# lost the formatting of the text outside the requested range. It now patches
+# the w:rPr of the runs the range resolves to, so the case below passes; the
+# wider consequences of the rebuild are covered by tests/tools/test_format_text.py.
+def test_format_text_keeps_untouched_run_formatting(combined_path):
     target_text = "Plain then bold bold italic et la fin."
     before = snapshot(combined_path.read_bytes())
     idx = _index_of(before, target_text)
