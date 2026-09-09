@@ -238,6 +238,38 @@ Tests dans `tests/support/test_libreoffice.py`, déterministes sans LibreOffice 
 ### Context
 `tests/support/libreoffice.py:36-79` (`convert`, appel `subprocess.run` unique), `:104-118` (`opens_in_libreoffice`, passe par `convert`) ; `tests/support/test_libreoffice.py` (double de `soffice_path` par `monkeypatch` déjà en place, `odt_cache_dir` de session). Vérifié le 2026-09-09 sur cette machine (LibreOffice 25.2) : trois `soffice --headless --norestore -env:UserInstallation=file:///tmp/<profil i> --convert-to docx` concurrents sur `notes_fields.fodt` écrivent tous leur sortie, aucun fichier `.~lock` n'apparaît dans `tests/fixtures/odt`. Le pipe d'instance de `soffice` dérive du chemin du profil : profil unique ⇒ instance propre.
 
+## J03-P11 — CHANGELOG des changements de comportement de J03
+
+```yaml
+id: J03-P11
+kind: implement
+tier: T5
+size: S
+depends_on: [J03-P5, J03-P6, J03-P7]
+files:
+  - CHANGELOG.md
+acceptance:
+  - "grep -q -x -F '## [Unreleased]' CHANGELOG.md"
+  - "test \"$(grep -c '^## ' CHANGELOG.md)\" -eq 10"
+  - "grep -q 'merge_documents' CHANGELOG.md && grep -q 'first source document' CHANGELOG.md"
+  - "grep -q 'replace_block_between_manual_anchors' CHANGELOG.md && grep -q 'end_anchor_text' CHANGELOG.md && grep -q 'End anchor' CHANGELOG.md"
+  - "grep -q 'replace_paragraph_block_below_header' CHANGELOG.md && grep -q 'w:sectPr' CHANGELOG.md"
+  - "test \"$(head -n 7 CHANGELOG.md | sha256sum | cut -d' ' -f1)\" = e3f2ec4b33cfdeabaf535e8e00174ddc3e762efb0b41d2ea1591c247fc4033a9"
+  - "test \"$(sed -n '/^## .1.6.0. - 2026-04-29$/,$p' CHANGELOG.md | sha256sum | cut -d' ' -f1)\" = 6e7f8c4252d8a2b6d1a498f36f0e7e6262764dba59ef7943303119c2d3298fe5"
+```
+
+### Scope
+D-015 : D-011 confiait cette entrée à « J03-P7 ou J03-P8 », mais `CHANGELOG.md` n'était dans les `files` d'aucune part ; J03-P7 (✅) l'a laissé intact et J03-P8 ne change rien. Écrire l'entrée, en anglais ; aucun autre fichier.
+Forme : le fichier suit Keep a Changelog (`## [X.Y.Z] - date`, sous-sections `### Added` / `### Changed` / `### Fixed`, une puce par outil : nom en code en tête de puce, tiret cadratin, description). Insérer une section `## [Unreleased]` en ligne 8, entre le préambule et `## [1.6.0] - 2026-04-29`, avec `### Changed` (fusion) puis `### Fixed` (les deux garde-fous). Pas de numéro de version (versionnage hors plan ; `pyproject.toml` dit 1.6.20 et la dernière entrée est 1.6.0 : ne pas trancher, ne pas toucher `pyproject.toml`) ; pas de ligne `[Unreleased]:` dans le bloc de liens (il n'a pas de `[1.6.0]` non plus) ; préambule (lignes 1–7) et tout ce qui suit `## [1.6.0]` byte à byte inchangés (hashes ci-dessus).
+Trois puces et rien d'autre, chacune nommant l'outil, l'ancien comportement et le nouveau ; contenu (anglais) :
+1. `merge_documents` (Changed) : merges into the **first source document** — its styles, numbering, sections, headers and footers are kept — instead of a blank `Document()` ; the body of every other source is appended element by element (runs, images, hyperlinks, bookmarks, fields, tracked changes and tables carried over) ; a source carrying comments, footnotes or endnotes is refused (`Failed to merge documents: …`, target left untouched) ; the headers and footers of the appended sources are ignored and listed under `Warnings:` after the success message.
+2. `replace_block_between_manual_anchors` (Fixed) : an `end_anchor_text` matching no paragraph is now reported — `End anchor 'X' not found.` — and nothing is written ; it previously deleted everything up to the end of the document.
+3. `replace_paragraph_block_below_header` / `replace_block_between_manual_anchors` (Fixed) : a block holding more section breaks (`w:sectPr`) than the replacement paragraphs can carry is refused — `Refusing to replace the block: it holds N section break(s) and only M replacement paragraph(s) to carry them.` — instead of silently dropping one and changing the page setup of everything that follows.
+Si `sha256sum CHANGELOG.md` ≠ `d74ff81a491570f1b2cbf232374b760ed257b6e4cb38871d36350a57d202ff68` avant toute édition, la base du worktree n'est pas la branche : rapporter `blocked`, ne pas adapter les hashes.
+
+### Context
+`CHANGELOG.md` (145 lignes : préambule 1–7, `## [1.6.0]` ligne 8, bloc de liens 138–145 sans `[1.6.0]`). Fusion : `tools/document_tools.py:141-204` (docstring, `Warnings:`), `engine/merge.py:1-62` (`MergeRefused`, avertissements), `tests/tools/test_merge.py`, `tests/engine/test_merge.py`. Ancre de fin : `utils/document_utils.py:1145-1160` ; sections : `utils/document_utils.py:929-944` (`_replace_block`), `tests/tools/test_layout_blocks.py`. Hashes calculés le 2026-09-10 sur le fichier de la branche, intact depuis 1.6.0.
+
 ## J03-P8 — Review J03
 
 ```yaml
@@ -245,7 +277,7 @@ id: J03-P8
 kind: review
 tier: T2
 size: S
-depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P7, J03-P9, J03-P10]
+depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P7, J03-P9, J03-P10, J03-P11]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/tools tests/characterization tests/engine -q --timeout=60"
@@ -260,3 +292,4 @@ acceptance:
 ### Scope
 Review the merged milestone diff with verify-before-done, code-review, test-design. Report; change nothing.
 Relit aussi J02-P10 (corrective D-009, hors du périmètre de J02-P7 close) : son diff et ses acceptations rejouées.
+Relit aussi `CHANGELOG.md` (J03-P11, D-015) : l'entrée `[Unreleased]` décrit les trois changements de comportement de J03 — fusion dans le premier document source, ancre de fin introuvable signalée, refus d'un bloc qui perdrait un `w:sectPr` — conformément au code mergé (`tools/document_tools.py`, `engine/merge.py`, `utils/document_utils.py`) ; historique antérieur intact.
