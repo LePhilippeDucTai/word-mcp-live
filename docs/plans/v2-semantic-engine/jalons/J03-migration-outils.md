@@ -166,7 +166,7 @@ id: J03-P7
 kind: implement
 tier: T4
 size: M
-depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P9]
+depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P9, J03-P10]
 files:
   - word_document_server/utils/save_utils.py
   - word_document_server/main.py
@@ -213,6 +213,31 @@ Rien d'autre ne change : les xfail restants (TOC, fusion, en-tête, style, ancre
 ### Context
 `tests/characterization/test_existing_tools.py:289-341, 472-530, 665-684` ; `tests/support/snapshot.py::assert_unchanged_except` (1029-1155, comparaison par clé), `Snapshot.paragraphs`, `ParagraphSignature` ; sémantique de fusion figée par `tests/tools/test_tracked_changes.py` (`test_accepting_everything_applies_the_paragraph_mark_and_names_what_it_skipped`, `test_a_refused_selection_writes_nothing`) ; paire de marques : `tests/fixtures/builders.py:692-705`.
 
+## J03-P10 — Correctif D-013 : profil `soffice` jetable par conversion
+
+```yaml
+id: J03-P10
+kind: implement
+tier: T5
+size: S
+depends_on: []
+files:
+  - tests/support/libreoffice.py
+  - tests/support/test_libreoffice.py
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/support/test_libreoffice.py -q"
+  - "grep -q 'def test_convert_gives_each_call_its_own_profile' tests/support/test_libreoffice.py && grep -q 'def test_convert_removes_its_profile_when_soffice_writes_nothing' tests/support/test_libreoffice.py && grep -q 'def test_concurrent_conversions_of_the_same_source_all_produce_output' tests/support/test_libreoffice.py"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run ruff check tests/support"
+```
+
+### Scope
+Mesuré en s4 au merge de J03-P1 : trois `tests/characterization` en parallèle (trois worktrees) convertissent le même `.fodt` ; `soffice` s'attache à l'instance déjà lancée qui détient `~/.config/libreoffice` et sort en code 0 **sans rien écrire** (aucune ligne « convert … »), d'où `RuntimeError: soffice reported success but did not produce …` sur une victime différente à chaque relance, sans régression de code. Isoler chaque conversion.
+`convert()` : créer un profil jetable `tempfile.mkdtemp(prefix="soffice-profile-")` avant l'appel, passer `-env:UserInstallation=<Path(profil).as_uri()>` (forme `file:///…`) dans la commande `soffice`, supprimer le profil (`shutil.rmtree`) dans un `finally` — sur retour normal, sur les deux `RuntimeError` et sur `TimeoutExpired`. Un profil par appel, jamais de profil partagé ni de repli sur le profil par défaut ; le reste de la commande (`--headless --norestore --convert-to --outdir`), les messages d'erreur, `fodt_to_docx` (cache) et `opens_in_libreoffice` inchangés. Docstring (anglais) : pourquoi le profil isole les conversions concurrentes.
+Tests dans `tests/support/test_libreoffice.py`, déterministes sans LibreOffice : `soffice_path` doublé (`lambda: "soffice"`) et faux `subprocess.run` posé par `monkeypatch` sur `tests.support.libreoffice.subprocess.run` (il lit `-env:UserInstallation=` dans `argv`, vérifie que le répertoire du profil existe au moment de l'appel, journalise la valeur, écrit `<outdir>/<stem>.docx` non vide et rend `CompletedProcess(returncode=0)`) : `test_convert_gives_each_call_its_own_profile` — trois `convert()` du même source vers trois `outdir` via `ThreadPoolExecutor(max_workers=3)` → trois valeurs `file:///…` distinctes, aucun de ces répertoires n'existe après retour ; `test_convert_removes_its_profile_when_soffice_writes_nothing` — faux qui rend 0 sans écrire → `RuntimeError` et profil supprimé (idem pour un code non nul). Avec LibreOffice (`@requires_libreoffice`, `@pytest.mark.libreoffice`, skip sinon) : `test_concurrent_conversions_of_the_same_source_all_produce_output` — trois `fodt_to_docx("rich", …)` concurrents vers trois répertoires distincts → trois `.docx` non vides (rouge non déterministe avant le correctif, vert après). Aucun test existant ne change de nom ; aucun autre fichier.
+
+### Context
+`tests/support/libreoffice.py:36-79` (`convert`, appel `subprocess.run` unique), `:104-118` (`opens_in_libreoffice`, passe par `convert`) ; `tests/support/test_libreoffice.py` (double de `soffice_path` par `monkeypatch` déjà en place, `odt_cache_dir` de session). Vérifié le 2026-09-09 sur cette machine (LibreOffice 25.2) : trois `soffice --headless --norestore -env:UserInstallation=file:///tmp/<profil i> --convert-to docx` concurrents sur `notes_fields.fodt` écrivent tous leur sortie, aucun fichier `.~lock` n'apparaît dans `tests/fixtures/odt`. Le pipe d'instance de `soffice` dérive du chemin du profil : profil unique ⇒ instance propre.
+
 ## J03-P8 — Review J03
 
 ```yaml
@@ -220,7 +245,7 @@ id: J03-P8
 kind: review
 tier: T2
 size: S
-depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P7, J03-P9]
+depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P7, J03-P9, J03-P10]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/tools tests/characterization tests/engine -q --timeout=60"
