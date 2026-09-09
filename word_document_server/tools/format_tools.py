@@ -28,7 +28,8 @@ async def format_text(filename: str, paragraph_index: int, start_pos: int, end_p
                      bold: Optional[bool] = None, italic: Optional[bool] = None, 
                      underline: Optional[bool] = None, color: Optional[str] = None,
                      font_size: Optional[int] = None, font_name: Optional[str] = None) -> str:
-    """Format text within a paragraph using python-docx (cross-platform, file-based).
+    """DESTRUCTIVE: clears every run of the paragraph; scheduled for rewrite.
+    Format text within a paragraph using python-docx (cross-platform, file-based).
     Only supports: bold, italic, underline, color, font_size, font_name.
     Does NOT support: highlight colors, styles, tracked changes.
     For highlight/style changes, use word_live_format_text instead (Windows only).
