@@ -22,7 +22,7 @@ acceptance:
 
 ### Scope
 `find_and_replace_text` → `engine.find` (toutes les stories de `DocxPackage.stories()` passées dans `stories`) + `replace_range` : correspondances à cheval sur des runs, hyperliens, `w:ins`, sdt, tableaux, en-têtes, pieds, notes ; `count` = occurrences ; correspondances chevauchant un champ → ignorées et signalées en fin de chaîne (`, N skipped (inside fields)`) ; règle de saut des paragraphes de style `TOC` conservée ; plus aucun remplacement par run.
-`find_text_in_document` → `engine.find` : résultat avec story (`Match.story`, id réel rendu par `DocxPackage.stories()` — `document`, `header1`, `footnotes`… ; `"body"` n'est qu'un alias d'entrée du filtre `stories` de `find`, jamais rendu), index V2 du paragraphe (`Match.index`, `None` pour un paragraphe en cellule de tableau, hors de l'espace V2), offsets, contexte ; format JSON existant conservé, clés ajoutées seulement.
+`find_text_in_document` → `engine.find` : résultat avec story (`Match.story`, id réel rendu par `DocxPackage.stories()` — `document`, `header1`, `footnotes`… ; `"body"` n'est qu'un alias d'entrée du filtre `stories` de `find`, jamais rendu), index V2 du paragraphe (`Match.index`, `None` pour un paragraphe en cellule de tableau ou en zone de texte, hors de l'espace V2), offsets, contexte ; format JSON existant conservé, clés ajoutées seulement.
 `tools/content_tools.py` : `search_and_replace` conserve son message ; sauvegarde via `DocxPackage.save`.
 Retirer les xfail correspondants dans `tests/characterization`.
 
@@ -74,7 +74,7 @@ acceptance:
 
 ### Scope
 `add_comment_to_doc` → `engine.find` + `format.wrap(comment)` + `ensure_part` pour `comments.xml`, `commentsExtended.xml`, `commentsIds.xml`, `people.xml` (fil Word fonctionnel, `paraId` unique, ids via `ids.py`) ; sauvegarde atomique.
-Lecture (`core/comments.py`) : ancres retrouvées (story = id réel de `DocxPackage.stories()`, index V2 ou `None` en cellule de tableau, texte ancré) ; suppression du repli par `str(element)` ; erreurs remontées, plus d'`except Exception` silencieux.
+Lecture (`core/comments.py`) : ancres retrouvées (story = id réel de `DocxPackage.stories()`, index V2 ou `None` en cellule de tableau ou en zone de texte, texte ancré) ; suppression du repli par `str(element)` ; erreurs remontées, plus d'`except Exception` silencieux.
 Hyperliens : action `add` via `wrap(hyperlink)` + relation externe dédoublonnée ; nouvelle action `remove` (`unwrap`, relation retirée si plus référencée) ; action `list` ; formats de retour JSON existants conservés.
 Supprimer les trois copies du matcher et des allocateurs de `rId`.
 
@@ -98,7 +98,7 @@ acceptance:
 ```
 
 ### Scope
-`format_text(paragraph_index, start_pos, end_pos, ...)` → `ranges.resolve` + `format.apply_rpr` ; offsets sur le texte visible du moteur ; index de paragraphe = espace V2 (un paragraphe en cellule de tableau n'y a pas d'index : `format_cell_text` l'adresse) ; couleur invalide → message d'erreur, jamais noir ; plus aucun `run.clear()` ni `add_run`.
+`format_text(paragraph_index, start_pos, end_pos, ...)` → `ranges.resolve` + `format.apply_rpr` ; offsets sur le texte visible du moteur ; index de paragraphe = espace V2 (un paragraphe en cellule de tableau ou en zone de texte n'y a pas d'index ; `format_cell_text` adresse la cellule) ; couleur invalide → message d'erreur, jamais noir ; plus aucun `run.clear()` ni `add_run`.
 `core/tables.py::format_cell_text` → `apply_rpr` sur les runs de la cellule ; `text_content` remplace le texte du premier paragraphe via `replace_range`, autres paragraphes et tableaux imbriqués conservés.
 Retirer le préfixe `DESTRUCTIVE` de la docstring de `format_text`.
 
@@ -209,3 +209,4 @@ acceptance:
 
 ### Scope
 Review the merged milestone diff with verify-before-done, code-review, test-design. Report; change nothing.
+Relit aussi J02-P10 (corrective D-009, hors du périmètre de J02-P7 close) : son diff et ses acceptations rejouées.
