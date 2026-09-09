@@ -12,7 +12,8 @@ from docx.shared import Inches, Pt, RGBColor
 from word_document_server.utils.document_utils import get_effective_text
 
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension, get_file_lock
-from word_document_server.utils.document_utils import find_and_replace_text, insert_header_near_text, insert_numbered_list_near_text, insert_line_or_paragraph_near_text, replace_paragraph_block_below_header, replace_block_between_manual_anchors
+from word_document_server.utils.document_utils import find_and_replace_text, replace_text_everywhere, insert_header_near_text, insert_numbered_list_near_text, insert_line_or_paragraph_near_text, replace_paragraph_block_below_header, replace_block_between_manual_anchors
+from word_document_server.engine.package import DocxPackage
 from word_document_server.core.styles import ensure_heading_style, ensure_table_style
 
 
@@ -457,17 +458,22 @@ async def search_and_replace(filename: str, find_text: str, replace_text: str) -
     
     try:
         async with get_file_lock(filename):
-            doc = Document(filename)
+            pkg = DocxPackage.open(filename)
 
-            # Perform find and replace
-            count = find_and_replace_text(doc, find_text, replace_text)
+            # Perform find and replace on the OOXML engine: matches split across
+            # runs, hyperlinks, tracked insertions, content controls, tables,
+            # headers, footers and notes are all found and rewritten in place.
+            report = replace_text_everywhere(pkg, find_text, replace_text)
 
-            if count > 0:
-                doc.save(filename)
-        if count > 0:
-            return f"Replaced {count} occurrence(s) of '{find_text}' with '{replace_text}'."
+            if report.replaced > 0:
+                pkg.save(filename)
+        if report.replaced > 0:
+            message = f"Replaced {report.replaced} occurrence(s) of '{find_text}' with '{replace_text}'."
         else:
-            return f"No occurrences of '{find_text}' found."
+            message = f"No occurrences of '{find_text}' found."
+        if report.skipped:
+            message += f", {report.skipped} skipped (inside fields)"
+        return message
     except Exception as e:
         return f"Failed to search and replace: {str(e)}"
 

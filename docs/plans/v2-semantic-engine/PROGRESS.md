@@ -1,6 +1,6 @@
 # PROGRESS — v2-semantic-engine
 
-Updated 2026-09-09 · s3 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
+Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
 ## J01 — Harnais de fidélité documentaire (7/7)
 
@@ -33,10 +33,10 @@ Updated 2026-09-09 · s3 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
-| J03-P1 | search_and_replace et find_text_in_document | T3 | ⬜ | 0 | |
-| J03-P2 | Tracked changes sur le moteur | T2 | ⬜ | 0 | |
-| J03-P3 | Commentaires et hyperliens sur le moteur | T3 | ⬜ | 0 | |
-| J03-P4 | format_text et format_cell_text sans reconstruction | T3 | ⬜ | 0 | |
+| J03-P1 | search_and_replace et find_text_in_document | T3 | ✅ | 1 | `replace_text_everywhere` + `ReplacementReport` ; `, N skipped (inside fields)` ; aucun xfail de caractérisation ne visait ces 2 outils (D-010) |
+| J03-P2 | Tracked changes sur le moteur | T2 | 🔄 | 1 | |
+| J03-P3 | Commentaires et hyperliens sur le moteur | T3 | 🔄 | 1 | |
+| J03-P4 | format_text et format_cell_text sans reconstruction | T3 | 🔄 | 1 | |
 | J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⬜ | 0 | |
 | J03-P6 | merge_documents par import d'éléments | T2 | ⬜ | 0 | |
 | J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ⬜ | 0 | |

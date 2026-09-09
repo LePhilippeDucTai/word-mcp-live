@@ -2,12 +2,19 @@
 Document utility functions for Word Document Server.
 """
 import json
+from dataclasses import dataclass
 from typing import Dict, List, Any
 from docx import Document
 from docx.oxml.table import CT_Tbl
 from docx.oxml.text.paragraph import CT_P
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+
+from word_document_server.engine.errors import PackageError
+from word_document_server.engine.find import find as engine_find
+from word_document_server.engine.package import DocxPackage
+from word_document_server.engine.ranges import replace_range
+from word_document_server.engine.textmodel import fields as paragraph_fields
 
 
 def get_effective_text(paragraph) -> str:
@@ -243,46 +250,157 @@ def find_paragraph_by_text(doc, text, partial_match=False):
     return matching_paragraphs
 
 
+#: Prefix of the style names whose paragraphs a replacement never touches: a
+#: table of contents is a generated view of the document, so rewriting it is
+#: both pointless (Word regenerates it) and destructive (its entries carry the
+#: field and hyperlink machinery that drives navigation).
+TOC_STYLE_PREFIX = "TOC"
+
+
+@dataclass(frozen=True)
+class ReplacementReport:
+    """Outcome of a search and replace over a whole package.
+
+    Attributes:
+        replaced: number of occurrences actually rewritten.
+        skipped: number of occurrences left alone because they overlap a field.
+            A field's markers, instruction and cached result are consistent only
+            as a whole, so replacing text that reaches into one would corrupt it;
+            such an occurrence is reported rather than silently dropped.
+    """
+
+    replaced: int
+    skipped: int
+
+
+def _style_names(pkg: DocxPackage) -> Dict[str, str]:
+    """Map ``w:styleId`` to the style's ``w:name`` for every style of the package.
+
+    Returns an empty map when the package has no live ``word/styles.xml``; a
+    document without a styles part has no named style to skip.
+    """
+    part = pkg.find_part("word/styles.xml")
+    if part is None:
+        return {}
+    try:
+        root = pkg.root_of(part)
+    except PackageError:
+        return {}
+    names: Dict[str, str] = {}
+    for style in root.findall(qn('w:style')):
+        style_id = style.get(qn('w:styleId'))
+        if not style_id:
+            continue
+        name = style.find(qn('w:name'))
+        value = None if name is None else name.get(qn('w:val'))
+        names[style_id] = value or style_id
+    return names
+
+
+def _is_toc_paragraph(paragraph, style_names: Dict[str, str]) -> bool:
+    """Whether `paragraph` carries a style whose name starts with ``TOC``.
+
+    The name is the one written in ``styles.xml``, which is what the previous
+    python-docx implementation compared too. A ``w:pStyle`` pointing at a style
+    the package does not declare falls back to the style id, so a dangling
+    ``TOC1`` reference is still recognised as a table-of-contents paragraph.
+    """
+    ppr = paragraph.find(qn('w:pPr'))
+    if ppr is None:
+        return False
+    pstyle = ppr.find(qn('w:pStyle'))
+    if pstyle is None:
+        return False
+    style_id = pstyle.get(qn('w:val'))
+    if not style_id:
+        return False
+    return style_names.get(style_id, style_id).startswith(TOC_STYLE_PREFIX)
+
+
+def replace_text_everywhere(pkg: DocxPackage, old_text: str, new_text: str) -> ReplacementReport:
+    """Replace every occurrence of `old_text` with `new_text` across `pkg`.
+
+    Every story the package holds is searched -- body, headers, footers,
+    footnotes, endnotes -- through
+    :func:`word_document_server.engine.find.find`, so an occurrence is found
+    wherever it reads: split across runs, inside a hyperlink, a tracked
+    insertion, a content control or a table cell. Rewriting goes through
+    :func:`word_document_server.engine.ranges.replace_range`, which splits runs
+    on the range boundaries and keeps every container it empties, so no
+    relationship, revision or content control is lost.
+
+    Occurrences of one paragraph are rewritten right to left, so the offsets of
+    the occurrences still to process stay valid.
+
+    Two kinds of occurrence are left alone: those in a paragraph styled ``TOC*``
+    (see :data:`TOC_STYLE_PREFIX`), which are not counted at all because a table
+    of contents is a generated view, and those overlapping a field, which are
+    counted in :attr:`ReplacementReport.skipped` so the caller can say so.
+
+    Args:
+        pkg: the open package; the change is made in memory, saving is the
+            caller's business.
+        old_text: text to find; must not be empty.
+        new_text: replacement text, possibly empty (which deletes the match).
+
+    Returns:
+        A :class:`ReplacementReport`.
+
+    Raises:
+        ValueError: if `old_text` is empty.
+        UnsupportedRange: if an occurrence cannot be rewritten for a reason
+            other than a field -- it strictly contains an image, a note
+            reference or tracked-deleted content, say. Nothing is saved by this
+            function, so the package on disk is untouched.
+    """
+    story_ids = [story_id for story_id, _ in pkg.stories()]
+    matches = engine_find(pkg, old_text, stories=story_ids)
+
+    # Group by paragraph while keeping document order; lxml elements are hashable
+    # by identity, which is exactly the grouping wanted here.
+    grouped: Dict[Any, list] = {}
+    for match in matches:
+        grouped.setdefault(match.paragraph, []).append(match)
+
+    style_names = _style_names(pkg)
+    replaced = 0
+    skipped = 0
+    for paragraph, occurrences in grouped.items():
+        if _is_toc_paragraph(paragraph, style_names):
+            continue
+        # Read once, before any mutation: these spans share the coordinate
+        # system of the match offsets.
+        field_spans = [(field.start, field.end) for field in paragraph_fields(paragraph)]
+        for match in reversed(occurrences):
+            if any(match.start < end and start < match.end for start, end in field_spans):
+                skipped += 1
+                continue
+            replace_range(paragraph, match.start, match.end, new_text)
+            replaced += 1
+    return ReplacementReport(replaced=replaced, skipped=skipped)
+
+
 def find_and_replace_text(doc, old_text, new_text):
     """
     Find and replace text throughout the document, skipping Table of Contents (TOC) paragraphs.
-    
+
     Args:
-        doc: Document object
+        doc: An open :class:`~word_document_server.engine.package.DocxPackage`
         old_text: Text to find
         new_text: Text to replace with
-        
-    Returns:
-        Number of replacements made
-    """
-    count = 0
-    
-    # Search in paragraphs
-    for para in doc.paragraphs:
-        # Skip TOC paragraphs
-        if para.style and para.style.name.startswith("TOC"):
-            continue
-        if old_text in get_effective_text(para):
-            for run in para.runs:
-                if old_text in run.text:
-                    run.text = run.text.replace(old_text, new_text)
-                    count += 1
 
-    # Search in tables
-    for table in doc.tables:
-        for row in table.rows:
-            for cell in row.cells:
-                for para in cell.paragraphs:
-                    # Skip TOC paragraphs in tables
-                    if para.style and para.style.name.startswith("TOC"):
-                        continue
-                    if old_text in get_effective_text(para):
-                        for run in para.runs:
-                            if old_text in run.text:
-                                run.text = run.text.replace(old_text, new_text)
-                                count += 1
-    
-    return count
+    Returns:
+        Number of replacements made -- one per occurrence, not one per run.
+        Occurrences skipped because they overlap a field are not counted; call
+        :func:`replace_text_everywhere` directly to get that count too.
+    """
+    if not isinstance(doc, DocxPackage):
+        raise TypeError(
+            "find_and_replace_text now works on the OOXML engine and takes a "
+            f"DocxPackage, not {type(doc).__name__}; open the file with "
+            "DocxPackage.open(path)"
+        )
+    return replace_text_everywhere(doc, old_text, new_text).replaced
 
 
 def get_document_xml(doc_path: str) -> str:
