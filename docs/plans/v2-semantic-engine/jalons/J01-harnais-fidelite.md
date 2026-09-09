@@ -163,3 +163,37 @@ acceptance:
 
 ### Scope
 Review the merged milestone diff with verify-before-done, code-review, test-design. Report; change nothing.
+
+## J01-P7 — Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués
+
+```yaml
+id: J01-P7
+kind: implement
+tier: T3
+size: S
+depends_on: [J01-P3, J01-P4, J01-P5]
+files:
+  - tests/support/snapshot.py
+  - tests/support/test_snapshot.py
+  - tests/support/package_check.py
+  - tests/support/test_package_check.py
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/support -q"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/ -q"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run ruff check ."
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import io,os,re,tempfile,zipfile;from tests.fixtures.builders import build;from tests.support.package_check import validate_package;z=zipfile.ZipFile(io.BytesIO(build('drawings')));o=io.BytesIO();w=zipfile.ZipFile(o,'w',zipfile.ZIP_DEFLATED);[w.writestr(i,re.sub(rb'<Relationship [^>]*media/image1.png[^>]*/>',b'',z.read(i)) if i.filename=='word/_rels/document.xml.rels' else z.read(i)) for i in z.infolist()];w.close();p=os.path.join(tempfile.mkdtemp(),'d.docx');open(p,'wb').write(o.getvalue());c={i.code for i in validate_package(p)};assert 'REL-REF-UNRESOLVED' in c, c\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import io,re,zipfile,pytest;from tests.fixtures.builders import build;from tests.support.snapshot import snapshot,assert_unchanged_except;b=build('headers_footers');z=zipfile.ZipFile(io.BytesIO(b));o=io.BytesIO();w=zipfile.ZipFile(o,'w',zipfile.ZIP_DEFLATED);[w.writestr(i,re.sub(rb'<w:(header|footer)Reference [^>]*/>',b'',z.read(i)) if i.filename=='word/document.xml' else z.read(i)) for i in z.infolist()];w.close();a=snapshot(b);c=snapshot(o.getvalue());assert len({a.sect_pr['document'],c.sect_pr['document']})==2;assert_unchanged_except(a,c,parts=['word/document.xml']);e=pytest.raises(AssertionError,assert_unchanged_except,a,c,paragraphs=[0]);assert 'sect_pr' in str(e.value), e.value\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/support/test_package_check.py -q -k duplicate_revision_id"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/support/test_package_check.py -q -k duplicate_comment_id"
+```
+
+### Scope
+Part corrective issue de la revue J01-P6 (D-004) : trois pertes que l'instrument ne voit pas, toutes mesurées. Aucun autre fichier ; `tests/characterization/` et `tests/fixtures/` ne sont pas à cette part.
+`package_check.py` — code `REL-REF-UNRESOLVED` : constante `R_NS` (`officeDocument/2006/relationships`) ; pour chaque partie story parsée (`_is_body_part` + `word/comments.xml`), toute valeur non vide d'un attribut de l'espace `r:` (`r:id`, `r:embed`, `r:link`, …) portée par un élément quelconque doit être l'`Id` d'une `Relationship` de `<dossier>/_rels/<nom>.rels` ; `.rels` absent → chaque référence est non résolue. `Issue("REL-REF-UNRESOLVED", partie, "<localname r:attr='rIdN'> has no relationship in <rels>")`, ordre du document. `REL-TARGET-MISSING` (rels → partie) reste ; ce code couvre le sens inverse (partie → rels). Docstring du module : lister le code. Fixtures constructeur et LibreOffice toujours vides.
+`snapshot.py` — `Snapshot.sect_pr: Mapping[str, str]` : story → C14N exclusive (`_canonical_fragment`) du `w:sectPr` enfant direct de `w:body`, `""` pour une story sans corps (en-têtes, pieds, notes, commentaires). `Diff.sect_pr_changed: tuple[FieldChange, ...]` (`field` = story), rendu par `describe()`. `assert_unchanged_except` : signalé `sect_pr {story}: {before!r} -> {after!r}` sauf si la partie de la story est dans `parts=` ; autoriser un paragraphe ne le lève pas. Le `sectPr` de paragraphe reste dans `ppr`. Docstring « Element-by-element coverage » : ajouter le `sectPr` de corps.
+`test_package_check.py` — `test_validate_package_detects_unresolved_image_relationship` (`drawings` : relation `image` retirée de `word/_rels/document.xml.rels`, `word/media/image1.png` conservée ; `code == "REL-REF-UNRESOLVED"`, `part == "word/document.xml"`) ; `test_validate_package_detects_unresolved_header_relationship` (`headers_footers` : une relation `header` retirée, `word/header1.xml` conservée) ; `test_validate_package_detects_duplicate_revision_id` (`tracked_changes` : `w:ins` 203 reçoit l'id 201) ; `test_validate_package_detects_duplicate_comment_id` (`comments` : le `w:comment` 2 reçoit l'id 1). Les deux derniers affirment `code == "ID-DUPLICATE"` **et** `"revision"` / `"comment id"` dans `message` : neutraliser la boucle visée (`package_check.py:211` ou `:229`) doit les faire tomber, la branche signet ne doit pas les satisfaire. Chaque test vérifie d'abord `validate_package(original) == []`.
+`test_snapshot.py` — document `make_docx` avec `sectPr` de corps : `sect_pr["document"]` non vide, story d'en-tête → `""`, `w:pgMar` modifié → `sect_pr_changed` ; fixture `headers_footers` : `strip_elements` sur `headerReference` puis `footerReference` (3 retraits) → `assert_unchanged_except(paragraphs=[0])` lève avec `sect_pr` dans le message, `parts=["word/document.xml"]` passe.
+Suite complète : `pytest tests/ -q` (LibreOffice présent, tests marqués inclus) doit rester verte — durcir l'instrument a déjà fait tomber 2 tests de caractérisation au round précédent. Si un test hors `files` tombe (`tests/characterization/`, `test_libreoffice.py`) : établir si le nouveau contrôle a raison (document réellement dégradé : relation absente, `sectPr` réécrit) ou s'il est un faux positif ; corriger le contrôle dans le second cas ; dans le premier, ne rien changer hors `files`, rendre `blocked` avec le test, le code émis et la preuve — l'orchestrateur décide (xfail + `docs/audit/destructive-ops.md`).
+
+### Context
+Mesures de la revue : `snapshot.py:844-848` (relations indexées par partie décrite) et `:1017-1028`, `:1086-1091` (`keep_part(owner)` : toute allowance de paragraphe met déjà `word/document.xml` dans `allowed_parts`, d'où la surdité) ; `:862` (boucle des paragraphes, `sectPr` de corps jamais visité) ; `package_check.py:143-169` (`REL-TARGET-MISSING`, sens rels → partie seulement), `:185-236` (trois branches `ID-DUPLICATE`) ; `test_package_check.py:192-200` (seule la variante signet est testée), helpers `:25-120` (`_parts_from_bytes`, `_remove_element`, `_write_zip`, `_serialize`, `_add_comment`) ; `test_snapshot.py:749-778` (`rewrite_document`, `strip_elements`), `:789-801` (patron « partie relâchée ») ; `test_existing_tools.py:332-354` (arguments de la mesure 1). Fixtures : `drawings` → `rId9 image → media/image1.png` (`combined` : `rId14`) ; `headers_footers` → `sectPr` de corps avec `rId9`/`rId10`/`rId11` ; `tracked_changes` → ins 201/203/208, del 202/204/207 ; `comments` → ids 1/2/3. Décision : D-004 dans DECISIONS_LOG.md. Aucune revue ne suit (J01-P6 ✅ gelée) : les acceptations valident la part ; J02-P7 rejoue les Checks. S'exécute avant J02-P1.

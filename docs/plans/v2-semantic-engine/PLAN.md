@@ -26,6 +26,8 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 - Compatibilité : 120 noms d'outils, signatures et formats de retour inchangés ; live COM/JXA intact hors J04-P4 ; nouveaux paramètres optionnels seulement.
 - Portabilité : LibreOffice optionnel (`skip`), jamais requis par les tests unitaires ; aucun test ne dépend de Word ; `uv` hors PATH des shells (préfixer `PATH="$HOME/.local/bin:$PATH"`).
 - Espaces d'index : trois espaces de `paragraph_index` coexistent (python-docx corps, `//w:p`, `body//w:p`) ; la migration J03 aligne sur l'espace V2 sans renommer les paramètres.
+- Zones aveugles du harnais laissées telles quelles (D-004) : `TableSignature` ne retient du `w:tblGrid` que le nombre de `w:gridCol` — des largeurs `w:gridCol/@w:w` réécrites passent `paragraphs=[...]` (mesuré sur `combined` ; `w:tcW` reste couvert par `cell_properties`) ; `XML-MALFORMED` et `CT-PART-MISSING` de `validate_package` sont fonctionnels mais sans test positif. Un test qui touche la grille d'un tableau (J03-P4, J05-P5) ne peut pas s'en remettre à `assert_unchanged_except` pour elle.
+- Lint partiel : `[tool.ruff] include` ne couvre que `word_document_server/engine/**`, `tests/**`, `scripts/**` ; un `ruff check .` vert ne dit rien de `word_document_server/tools|core|utils` (95 RUF013 et 9 W605 sur `live_tools.py` seul), que J03 réécrit.
 
 ## Checks
 
@@ -38,7 +40,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 
 | Id  | Milestone | Parts | Depends on | Orchestrator | File |
 |-----|-----------|-------|------------|--------------|------|
-| J01 | Harnais de fidélité documentaire | 6 | — | opus/high | jalons/J01-harnais-fidelite.md |
+| J01 | Harnais de fidélité documentaire | 7 | — | opus/high | jalons/J01-harnais-fidelite.md |
 | J02 | Cœur OOXML : paquet, flux de texte, plages, révisions | 7 | J01 | opus/high | jalons/J02-coeur-ooxml.md |
 | J03 | Migration des outils existants sur le cœur | 8 | J02 | opus/high | jalons/J03-migration-outils.md |
 | J04 | Surface V2 : adressage, inspection, dry-run, capacités, docs | 6 | J03 | opus/high | jalons/J04-surface-v2.md |
