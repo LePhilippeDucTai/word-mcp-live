@@ -21,12 +21,14 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 
 ## Risks
 
-- Invariants moteur : texte et rPr hors plage inchangés ; marqueurs conservés ; champs atomiques ; `w:del` jamais modifié ; parties non ciblées canoniquement identiques, parties binaires identiques octet à octet ; ids d'annotation uniques ; enfants pPr/rPr/tblPr en ordre de schéma ; sauvegarde atomique ; LibreOffice rouvre le fichier.
+- Invariants moteur : texte et rPr hors plage inchangés ; marqueurs conservés ; champs atomiques ; `w:del` jamais modifié ; parties non ciblées canoniquement identiques (faux à ce jour, D-007 ci-dessous ; rétabli par J02-P8), parties binaires identiques octet à octet ; ids d'annotation uniques ; enfants pPr/rPr/tblPr en ordre de schéma ; sauvegarde atomique ; LibreOffice rouvre le fichier.
 - Zones sensibles : `core/tracked_changes.py` (boucle infinie, splice multi-parents), `format_text`, `add_table_of_contents`, `merge_documents`, `add_header_footer`, `utils/save_utils.py`, numérotation (`numId` 1/2 en dur).
 - Compatibilité : 120 noms d'outils, signatures et formats de retour inchangés ; live COM/JXA intact hors J04-P4 ; nouveaux paramètres optionnels seulement.
 - Portabilité : LibreOffice optionnel (`skip`), jamais requis par les tests unitaires ; aucun test ne dépend de Word ; `uv` hors PATH des shells (préfixer `PATH="$HOME/.local/bin:$PATH"`).
 - Espaces d'index : trois espaces de `paragraph_index` coexistent (python-docx corps, `//w:p`, `body//w:p`) ; la migration J03 aligne sur l'espace V2 sans renommer les paramètres.
 - Zones aveugles du harnais laissées telles quelles (D-004) : `TableSignature` ne retient du `w:tblGrid` que le nombre de `w:gridCol` — des largeurs `w:gridCol/@w:w` réécrites passent `paragraphs=[...]` (mesuré sur `combined` ; `w:tcW` reste couvert par `cell_properties`) ; `XML-MALFORMED` et `CT-PART-MISSING` de `validate_package` sont fonctionnels mais sans test positif. Un test qui touche la grille d'un tableau (J03-P4, J05-P5) ne peut pas s'en remettre à `assert_unchanged_except` pour elle.
+- Aller-retour `open`/`save` non neutre (D-007) : mesuré le 2026-09-09 sur 19/19 fixtures, `_EnginePartFactory` (J02-P1) fait parser par python-docx (`remove_blank_text=True`) des parties qu'il laissait en blob — `word/theme/theme1.xml`, `word/webSettings.xml`, `word/fontTable.xml`, `word/stylesWithEffects.xml`, `docProps/app.xml`, `customXml/itemProps1.xml` — resérialisées sans leurs blancs inter-éléments ; données intactes, invariant faux. J02-P8 restreint la fabrique à `LIVE_CONTENT_TYPES` (stories, famille des commentaires, styles, numbering) ; toute autre partie XML reste un blob, lisible par `Part.blob` seulement (J05-P1 pour le thème). Ne jamais tolérer ces parties en `parts=` d'`assert_unchanged_except` : le harnais deviendrait sourd à leur réécriture pour J03→J06.
+- Piège d'instrument (D-007) : `Diff.is_empty` (`tests/support/snapshot.py`) est une **méthode** — `assert delta.is_empty` est toujours vrai et a masqué le défaut ci-dessus sur 19 fixtures ; écrire `is_empty()` partout, garde grep posée par J02-P8 sur les porteurs de `Diff` (`difference`, `delta`, `diff(...)`). `Pieces.is_empty` (`engine/ranges.py`) est, elle, une propriété.
 - Lint partiel : `[tool.ruff] include` ne couvre que `word_document_server/engine/**`, `tests/**`, `scripts/**` ; un `ruff check .` vert ne dit rien de `word_document_server/tools|core|utils` (95 RUF013 et 9 W605 sur `live_tools.py` seul), que J03 réécrit.
 
 ## Checks
@@ -41,7 +43,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 | Id  | Milestone | Parts | Depends on | Orchestrator | File |
 |-----|-----------|-------|------------|--------------|------|
 | J01 | Harnais de fidélité documentaire | 7 | — | opus/high | jalons/J01-harnais-fidelite.md |
-| J02 | Cœur OOXML : paquet, flux de texte, plages, révisions | 7 | J01 | opus/high | jalons/J02-coeur-ooxml.md |
+| J02 | Cœur OOXML : paquet, flux de texte, plages, révisions | 8 | J01 | opus/high | jalons/J02-coeur-ooxml.md |
 | J03 | Migration des outils existants sur le cœur | 8 | J02 | opus/high | jalons/J03-migration-outils.md |
 | J04 | Surface V2 : adressage, inspection, dry-run, capacités, docs | 6 | J03 | opus/high | jalons/J04-surface-v2.md |
 | J05 | Styles, thème, format effectif, numérotation, styles de tableau | 6 | J04 | opus/high | jalons/J05-styles-theme-numerotation.md |

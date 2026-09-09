@@ -153,6 +153,35 @@ Tests : `new_text ⊇ old_text` termine ; `rPr` de chaque morceau conservé ; im
 ### Context
 Défauts à ne pas reproduire : `core/tracked_changes.py:200-271` (boucle infinie reproduite le 2026-09-09), `:518-660` (accept/reject partiel). ECMA-376 §17.13.5.
 
+## J02-P8 — Correctif D-007 : aller-retour `open`/`save` neutre, assertions `is_empty()`
+
+```yaml
+id: J02-P8
+kind: implement
+tier: T3
+size: S
+depends_on: [J02-P1]
+files:
+  - word_document_server/engine/package.py
+  - tests/engine/test_package.py
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine/test_package.py -q"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import tempfile, pathlib, shutil; from tests.fixtures.builders import ALL_FIXTURES, build; from tests.support.snapshot import diff, snapshot; from word_document_server.engine.package import DocxPackage; d = pathlib.Path(tempfile.mkdtemp()); src = {n: build(n) for n in sorted(ALL_FIXTURES)}; bad = [n for n, b in src.items() if not diff(snapshot(b), snapshot(DocxPackage.open(b).save(d / (n + '.docx')))).is_empty()]; shutil.rmtree(d, ignore_errors=True); assert not bad, bad\""
+  - "! grep -rnE '(difference|delta|diff[(].*[)])[.]is_empty([^(]|$)' tests/"
+  - "! grep -rnE --include='*.py' '^[[:space:]]*(import zipfile|from zipfile)' word_document_server/engine/"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/ -q"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run ruff check ."
+```
+
+### Scope
+Part corrective de J02-P1 (D-007) ; J02-P1 n'est pas réécrite.
+`Diff.is_empty` (`tests/support/snapshot.py:400`) est une **méthode**, pas une propriété : `assert difference.is_empty` est toujours vrai. Corriger `tests/engine/test_package.py:73,116,130` en `difference.is_empty()` ; aucune assertion du dépôt ne doit utiliser `Diff.is_empty` sans parenthèses (garde grep en acceptation sur les porteurs de `Diff` : `difference`, `delta`, `diff(...)` ; `Pieces.is_empty` de `ranges.py` est une propriété, hors champ).
+`package.py` : constante publique `LIVE_CONTENT_TYPES` = `STORY_CONTENT_TYPES` ∪ famille des commentaires (`comments`, `commentsExtended`, `commentsIds`, `commentsExtensible`, `people` — J03-P3 fait `ensure_part` dessus, ce qui exige une partie live) ∪ `styles` ∪ `numbering`. `_EnginePartFactory._part_cls_for` : classe enregistrée par python-docx si elle existe, sinon `XmlPart` si le type de contenu est dans `LIVE_CONTENT_TYPES`, sinon `Part` (blob non parsé, identique octet à octet après sauvegarde) : `theme1.xml`, `webSettings.xml`, `fontTable.xml`, `stylesWithEffects.xml`, `docProps/app.xml`, `customXml/*`. Un blob XML reste lisible par `Part.blob` (parse détaché, lecture seule — J05-P1 pour le thème) ; `root_of` sur un blob lève `PackageError` dont le message distingue « binaire » de « XML non chargé live » et renvoie vers `Part.blob`. `ensure_part` inchangé. Docstring de module (« Live XML parts ») réécrite sur la liste blanche.
+Tests : `test_every_xml_part_is_loaded_live` remplacé par (a) toute partie présente de `LIVE_CONTENT_TYPES` → `XmlPart` (`comments`, `footnotes`, `combined`) ; (b) les six parties ci-dessus → `Part` non `XmlPart`, octets identiques à la source après `open`/`save` (lus par `zipfile` côté test) ; `test_open_then_save_is_lossless` reste paramétré sur les 19 fixtures et échoue désormais dès qu'une partie est réindentée.
+
+### Context
+Cause : `docx.oxml.parser.oxml_parser` est construit avec `remove_blank_text=True` — toute partie que python-docx parse perd ses blancs inter-éléments à la resérialisation ; ses parties enregistrées (python-docx 1.1.2 : document, header, footer, styles, numbering, settings, core) sont déjà neutres sur les fixtures, qui en sont issues. Mesuré le 2026-09-09 : aller-retour non neutre sur 19/19 fixtures, toujours les six mêmes parties, blancs seuls ; avec la liste blanche ci-dessus, 19/19 neutres, `validate_package` vide, `tests/` vert hors `test_every_xml_part_is_loaded_live`. `ids.py:93-95` (comments) et `format.py:574-577` (styles) lisent des parties de la liste blanche : rien à changer. `tests/engine/test_ranges_properties.py:78-91` (gelé, J02-P3) se compare à une base « ouverte puis sauvée » pour ne pas dépendre de ce défaut : sa docstring devient périmée, son contrat reste juste.
+
 ## J02-P7 — Review J02
 
 ```yaml
@@ -160,7 +189,7 @@ id: J02-P7
 kind: review
 tier: T2
 size: S
-depends_on: [J02-P1, J02-P2, J02-P3, J02-P4, J02-P5, J02-P6]
+depends_on: [J02-P1, J02-P2, J02-P3, J02-P4, J02-P5, J02-P6, J02-P8]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine -q --timeout=60"
