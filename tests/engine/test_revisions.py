@@ -21,6 +21,7 @@ infinite loop of ``core/tracked_changes.py``) and the several
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import UTC, datetime, timedelta, timezone
 from functools import cache
 
@@ -141,6 +142,43 @@ def all_annotation_ids(pkg: DocxPackage) -> list[str]:
         for element in root.iter(W_INS, W_DEL, qn("w:moveFrom"), qn("w:moveTo"))
         if element.get(W_ID) is not None
     ]
+
+
+def split_by_an_inserted_mark(name: str = "mixed_runs") -> tuple[bytes, bytes, bytes]:
+    """A fixture paragraph cut in two by an inserted paragraph mark.
+
+    Returns three packages: the fixture untouched, the split recorded as a
+    revision, and the very same split with no revision at all.  The second is
+    what rejecting the mark must turn back into the first, and what accepting it
+    must turn into the third -- so both directions are pinned against a document
+    built without ``accept``/``reject`` having any part in it.
+
+    The shape is Word's: cutting a paragraph puts the new mark on the *first*
+    half, whose ``w:pPr`` is a copy of the mark being split, and leaves the
+    original mark closing the second half.
+    """
+    source = untouched_bytes(name)
+    pkg = DocxPackage.open(source)
+    body = dict(pkg.stories())["document"].find(W_BODY)
+    tail = next(
+        candidate
+        for candidate in body.iterchildren(W_P)
+        if len(candidate.findall(W_R)) >= 2
+        and candidate.find(f"{qn('w:pPr')}/{W_RPR}") is not None
+    )
+    head = etree.Element(W_P)
+    body.insert(body.index(tail), head)
+    head.append(deepcopy(tail.find(qn("w:pPr"))))
+    mark = etree.Element(W_INS)
+    mark.set(W_ID, "9001")
+    mark.set(W_AUTHOR, AUTHOR)
+    mark.set(W_DATE, STAMP)
+    properties_of_mark = head.find(f"{qn('w:pPr')}/{W_RPR}")
+    properties_of_mark.insert(0, mark)
+    head.append(tail.find(W_R))
+    tracked = pkg.to_bytes()
+    properties_of_mark.remove(mark)
+    return source, tracked, pkg.to_bytes()
 
 
 # --------------------------------------------------------------------------------------
@@ -734,6 +772,75 @@ def test_rejecting_a_deleted_paragraph_mark_leaves_the_paragraphs_apart() -> Non
     ]
 
 
+def test_accepting_an_inserted_paragraph_mark_keeps_the_paragraph_it_added() -> None:
+    source, tracked, plain = split_by_an_inserted_mark()
+    pkg = DocxPackage.open(tracked)
+
+    assert [item.kind for item in accept(pkg)] == ["paragraph-mark-ins"]
+
+    assert list_revisions(pkg) == []
+    after = snapshot(pkg.to_bytes())
+    assert diff(snapshot(plain), after).is_empty()
+    # And really kept the split: the fixture before it is a different document.
+    assert not diff(snapshot(source), after).is_empty()
+
+
+def test_rejecting_an_inserted_paragraph_mark_restores_the_document_exactly() -> None:
+    source, tracked, _ = split_by_an_inserted_mark()
+    pkg = DocxPackage.open(tracked)
+
+    assert [item.kind for item in reject(pkg)] == ["paragraph-mark-ins"]
+
+    assert list_revisions(pkg) == []
+    assert diff(snapshot(source), snapshot(pkg.to_bytes())).is_empty()
+
+
+def test_rejecting_two_consecutive_inserted_marks_leaves_one_paragraph() -> None:
+    pkg, first = hosted(
+        f'<w:pPr><w:rPr><w:ins w:id="900" w:author="{OTHER}" w:date="{STAMP}"/></w:rPr>'
+        '<w:jc w:val="left"/></w:pPr><w:r><w:t>one</w:t></w:r>'
+    )
+    body = first.getparent()
+    second = paragraph_from(
+        f'<w:pPr><w:rPr><w:ins w:id="901" w:author="{OTHER}" w:date="{STAMP}"/></w:rPr>'
+        '<w:jc w:val="center"/></w:pPr><w:r><w:t>two</w:t></w:r>'
+    )
+    body.insert(body.index(first) + 1, second)
+    third = paragraph_from('<w:pPr><w:jc w:val="right"/></w:pPr><w:r><w:t>three</w:t></w:r>')
+    body.insert(body.index(second) + 1, third)
+
+    assert [item.id for item in reject(pkg, ids=[900, 901])] == [900, 901]
+
+    assert first.getparent() is None
+    assert second.getparent() is None
+    assert visible_text(third) == "onetwothree"
+    # The only surviving mark is the last one, so its properties govern.
+    assert third.find(qn("w:pPr")).find(qn("w:jc")).get(qn("w:val")) == "right"
+
+
+def test_accepting_the_fixtures_inserted_paragraph_mark_moves_no_text() -> None:
+    pkg = DocxPackage.open(untouched_bytes("tracked_changes"))
+    before = [visible_text(p) for p in paragraphs_of(pkg)]
+
+    assert [item.id for item in accept(pkg, ids=[208])] == [208]
+
+    assert [visible_text(p) for p in paragraphs_of(pkg)] == before
+    assert 208 not in {item.id for item in list_revisions(pkg)}
+
+
+def test_reject_refuses_an_inserted_paragraph_mark_with_nothing_to_merge_into() -> None:
+    pkg = DocxPackage.open(untouched_bytes("tracked_changes"))
+    before = snapshot(pkg.to_bytes())
+
+    # 208 closes the last paragraph of the body: there is nothing after it to
+    # merge into, so undoing the split is impossible and refused as a whole.
+    with pytest.raises(UnsupportedRevision, match="merge into") as failure:
+        reject(pkg, ids=[208])
+
+    assert failure.value.ids == (208,)
+    assert diff(before, snapshot(pkg.to_bytes())).is_empty()
+
+
 def test_nested_revisions_are_applied_together() -> None:
     pkg = DocxPackage.open(untouched_bytes("tracked_changes"))
     paragraph = paragraphs_of(pkg)[2]
@@ -821,8 +928,8 @@ def test_accepting_everything_is_refused_while_a_kind_is_unsupported() -> None:
 
     # The half-application of core/tracked_changes.py: it unwrapped the two
     # insertions, dropped the deletions and reported success while every
-    # property revision and the inserted paragraph mark were still there.
-    assert failure.value.ids == (205, 206, 208)
+    # property revision was still there.
+    assert failure.value.ids == (205, 206)
 
 
 def test_accept_refuses_a_deleted_paragraph_mark_with_nothing_to_merge_into() -> None:
