@@ -37,10 +37,10 @@ Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P2 | Tracked changes sur le moteur | T2 | ✅ | 1 | droite→gauche (boucle infinie supprimée par construction), toutes les stories ; **laisse 5 rouges dans `tests/characterization/test_existing_tools.py`** (3 XPASS strict + 2 instantanés périmés par D-008) → corrigé par J03-P9 (D-012) |
 | J03-P3 | Commentaires et hyperliens sur le moteur | T3 | ✅ | 1 | fil Word complet (`commentsExtended`/`commentsIds`/`people`), hyperliens `add`/`remove`/`list` ; hors `files` : `parts=` élargi sur 1 assertion de `tests/characterization/test_existing_tools.py` |
 | J03-P4 | format_text et format_cell_text sans reconstruction | T3 | ✅ | 1 | `resolve`+`apply_rpr`, plus de `run.clear()` ; `resolve_color`/`run_patch` dans `core/tables.py` ; hors `files` : 1 xfail retiré dans `tests/characterization/test_existing_tools.py` |
-| J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⏸ | 0 | depends_on étendu à J03-P9 (D-012) |
+| J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⬜ | 0 | débloquée : J03-P1 et J03-P9 ✅ |
 | J03-P6 | merge_documents par import d'éléments | T2 | ✅ | 1 | `append_document(target, source, page_break) -> Report` ; document fusionné = premier source (garde styles/sections/en-têtes) ; `copy_table` supprimé (plus d'appelant) ; refus explicite si commentaires/notes dans la source |
 | J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ⬜ | 0 | depends_on étendu à J03-P9 |
-| J03-P9 | Correctif D-012 : caractérisation des tracked changes alignée sur J03-P2 | T4 | ⬜ | 0 | ajoutée par le plan update (D-012) |
+| J03-P9 | Correctif D-012 : caractérisation des tracked changes alignée sur J03-P2 | T4 | ✅ | 1 | 3 tests renommés (XPASS→verts) ; `_reindex_after_merge` sur les 2 `touches_only…` ; `tests/characterization` : 49 passed, 4 xfailed |
 | J03-P8 | Review J03 | T2 | ⬜ | 0 | depends_on étendu à J03-P9 |
 
 ## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/6)

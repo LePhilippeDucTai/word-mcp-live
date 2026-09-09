@@ -31,6 +31,7 @@ picked from.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import zipfile
 from typing import Any
@@ -39,7 +40,12 @@ import pytest
 from docx import Document as PDocument
 
 from tests.support.package_check import validate_package
-from tests.support.snapshot import Snapshot, assert_unchanged_except, snapshot
+from tests.support.snapshot import (
+    ParagraphSignature,
+    Snapshot,
+    assert_unchanged_except,
+    snapshot,
+)
 from word_document_server.tools.comment_write_tools import add_comment
 from word_document_server.tools.content_tools import (
     add_heading,
@@ -110,6 +116,33 @@ def _docx_index_of(path, text: str) -> int:
         f"found at indices {matches}"
     )
     return matches[0]
+
+
+def _reindex_after_merge(
+    after: Snapshot, absorbed_index: int, story: str = "document"
+) -> Snapshot:
+    """Shift ``story`` paragraph keys at or past ``absorbed_index`` by +1.
+
+    Accepting a deleted paragraph mark or rejecting an inserted one merges
+    two paragraphs and removes one ``w:p`` from ``story`` (D-008): every
+    paragraph that followed the absorbed one now sits one key earlier in
+    ``after``'s snapshot space than the same physical paragraph does in
+    ``before``'s. Shifting those keys back by one re-aligns the two
+    snapshots so :func:`~tests.support.snapshot.assert_unchanged_except` can
+    compare them key by key; the absorbed key is then correctly reported as
+    removed instead of every following paragraph being reported as changed.
+    ``tables`` keys are numbered separately and never shift.
+    """
+    reindexed: dict[tuple[str, int], ParagraphSignature] = {}
+    for (key_story, index), sig in after.paragraphs.items():
+        if key_story == story and index >= absorbed_index:
+            new_index = index + 1
+            reindexed[(key_story, new_index)] = dataclasses.replace(
+                sig, index=new_index
+            )
+        else:
+            reindexed[(key_story, index)] = sig
+    return dataclasses.replace(after, paragraphs=reindexed)
 
 
 @pytest.fixture
@@ -294,20 +327,28 @@ def test_accept_tracked_changes_touches_only_the_paragraphs_with_ins_or_del(
     idx_nested = _index_of(before, "Before.  After.")
     # Paragraph-mark revisions: the deleted mark's <w:del> and the inserted
     # mark's <w:ins> both live in w:pPr/w:rPr, so accepting touches their
-    # ppr too, even though (see the xfail below) it never performs the
-    # paragraph merge that accepting a deleted mark should trigger.
+    # ppr too. Accepting the deleted mark also merges its paragraph with the
+    # next one (D-008): idx_ins_mark's text joins idx_del_mark's paragraph
+    # and idx_ins_mark's own w:p is removed, so it is the absorbed key --
+    # every paragraph that followed it shifts down by one key in `after`.
     idx_del_mark = _index_of(
         before, "This paragraph mark is deleted, so this merges with the next one."
     )
     idx_ins_mark = _index_of(before, "This paragraph mark is inserted.")
+    del_mark_text = before.paragraphs[("document", idx_del_mark)].text
+    ins_mark_text = before.paragraphs[("document", idx_ins_mark)].text
 
     result = _run(accept_tracked_changes(str(combined_path)))
     assert json.loads(result)["success"] is True
 
     after = snapshot(combined_path.read_bytes())
+    merged = after.paragraphs[("document", idx_del_mark)]
+    assert merged.text == del_mark_text + ins_mark_text
+
+    after_reindexed = _reindex_after_merge(after, idx_ins_mark)
     assert_unchanged_except(
         before,
-        after,
+        after_reindexed,
         paragraphs=[idx_plain, idx_nested, idx_del_mark, idx_ins_mark],
         counters=["revisions"],
     )
@@ -321,21 +362,31 @@ def test_reject_tracked_changes_touches_only_the_paragraphs_with_ins_or_del(
     idx_plain = _index_of(before, "Kept text, inserted text, and kept tail.")
     idx_nested = _index_of(before, "Before.  After.")
     # Same paragraph-mark paragraphs as above: rejecting strips <w:del> and
-    # <w:ins> from their ppr too (see the xfail below for what rejecting an
-    # inserted mark should also do, and currently does not).
+    # <w:ins> from their ppr too. Rejecting the inserted mark also merges its
+    # paragraph with the one that follows it (D-008): the following
+    # paragraph's text joins idx_ins_mark's paragraph and the following
+    # paragraph's own w:p is removed, so it is the absorbed key -- every
+    # paragraph after it shifts down by one key in `after`.
     idx_del_mark = _index_of(
         before, "This paragraph mark is deleted, so this merges with the next one."
     )
     idx_ins_mark = _index_of(before, "This paragraph mark is inserted.")
+    idx_absorbed = idx_ins_mark + 1
+    ins_mark_text = before.paragraphs[("document", idx_ins_mark)].text
+    absorbed_text = before.paragraphs[("document", idx_absorbed)].text
 
     result = _run(reject_tracked_changes(str(combined_path)))
     assert json.loads(result)["success"] is True
 
     after = snapshot(combined_path.read_bytes())
+    merged = after.paragraphs[("document", idx_ins_mark)]
+    assert merged.text == ins_mark_text + absorbed_text
+
+    after_reindexed = _reindex_after_merge(after, idx_absorbed)
     assert_unchanged_except(
         before,
-        after,
-        paragraphs=[idx_plain, idx_nested, idx_del_mark, idx_ins_mark],
+        after_reindexed,
+        paragraphs=[idx_plain, idx_nested, idx_del_mark, idx_ins_mark, idx_absorbed],
         counters=["revisions"],
     )
     assert validate_package(combined_path) == []
@@ -469,19 +520,15 @@ def test_protect_then_unprotect_roundtrips_bytes(combined_path):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "accept_tracked_changes only strips the <w:del> marker from a "
-        "deleted paragraph mark's w:pPr/w:rPr (root.iter(W('del')) matches "
-        "it exactly like a run-level deletion); it never merges the "
-        "paragraph with the following one the way Word does when a deleted "
-        "paragraph mark is accepted. The revision is recorded as accepted "
-        "(the marker is gone, the counter drops) but its actual effect -- "
-        "one fewer paragraph break -- is never applied."
-    ),
-)
-def test_accept_tracked_changes_does_not_merge_a_deleted_paragraph_mark(
+# Was xfail(strict=True) until J03-P2: accept_tracked_changes used to only
+# strip the <w:del> marker from a deleted paragraph mark's w:pPr/w:rPr
+# (root.iter(W("del")) matched it exactly like a run-level deletion); it
+# never merged the paragraph with the following one the way Word does when a
+# deleted paragraph mark is accepted. The revision was recorded as accepted
+# (the marker gone, the counter dropped) but its actual effect -- one fewer
+# paragraph break -- was never applied. engine/revisions.py now performs the
+# merge via _merge_into_next (D-008).
+def test_accept_tracked_changes_merges_a_deleted_paragraph_mark(
     combined_path,
 ):
     before = snapshot(combined_path.read_bytes())
@@ -499,20 +546,15 @@ def test_accept_tracked_changes_does_not_merge_a_deleted_paragraph_mark(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "reject_tracked_changes has the symmetric bug: rejecting an "
-        "inserted paragraph mark should undo the split it introduced and "
-        "merge the paragraph back with the one that follows, the way Word "
-        "does. Instead the tool only strips the <w:ins> marker from "
-        "w:pPr/w:rPr (root.iter(W('ins')) matches it exactly like a "
-        "run-level insertion, and parent.remove(ins) is a no-op merge "
-        "because the element has no children to reinsert), leaving the "
-        "paragraph break in place."
-    ),
-)
-def test_reject_tracked_changes_does_not_merge_an_inserted_paragraph_mark(
+# Was xfail(strict=True) until J03-P2: reject_tracked_changes had the
+# symmetric bug -- rejecting an inserted paragraph mark should undo the split
+# it introduced and merge the paragraph back with the one that follows, the
+# way Word does. The tool used to only strip the <w:ins> marker from
+# w:pPr/w:rPr (root.iter(W("ins")) matched it exactly like a run-level
+# insertion, and parent.remove(ins) was a no-op merge because the element had
+# no children to reinsert), leaving the paragraph break in place.
+# engine/revisions.py now performs the merge via _merge_into_next (D-008).
+def test_reject_tracked_changes_merges_an_inserted_paragraph_mark(
     combined_path,
 ):
     before = snapshot(combined_path.read_bytes())
@@ -663,22 +705,28 @@ def test_replace_block_between_manual_anchors_never_finds_the_anchor(combined_pa
 
 
 @pytest.mark.timeout(10)
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "track_replace_in_doc's while True loop re-scans the whole "
-        "paragraph after every replacement, including runs it just inserted "
-        "inside the new <w:ins>. When new_text contains old_text as a "
-        "substring (e.g. 'Risk' -> 'Risk Risk'), the freshly inserted text "
-        "matches again on the next iteration and the paragraph grows "
-        "forever; the call never returns."
-    ),
-)
-def test_track_replace_infinite_loop_when_replacement_contains_original(tmp_path):
+# Was xfail(strict=True) until J03-P2: track_replace_in_doc's while True loop
+# used to re-scan the whole paragraph after every replacement, including runs
+# it had just inserted inside the new <w:ins>. When new_text contained
+# old_text as a substring (e.g. "Risk" -> "Risk Risk"), the freshly inserted
+# text matched again on the next iteration and the paragraph grew forever;
+# the call never returned. core/tracked_changes.py now applies replacements
+# right-to-left over the matches found in a single upfront scan, so a
+# freshly inserted run can never be rescanned.
+def test_track_replace_terminates_when_replacement_contains_original(tmp_path):
     from tests.fixtures.builders import build
 
     path = tmp_path / "risk.docx"
     path.write_bytes(build("simple"))
     _run(add_paragraph(str(path), "This is a Risk statement."))
 
-    _run(track_replace(str(path), "Risk", "Risk Risk"))
+    result = _run(track_replace(str(path), "Risk", "Risk Risk"))
+    payload = json.loads(result)
+    assert payload["success"] is True
+    assert payload["replacements"] == 1
+
+    after = snapshot(path.read_bytes())
+    idx = _index_of(after, "This is a Risk Risk statement.")
+    assert after.story_paragraphs("document")[idx].text == (
+        "This is a Risk Risk statement."
+    )
