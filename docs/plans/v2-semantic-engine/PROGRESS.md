@@ -14,15 +14,15 @@ Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P6 | Review J01 | T2 | ✅ | 1 | round 1 failed → 3 corrections ; round 2 done, 3 should-fix restants (D-004) |
 | J01-P7 | Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués | T3 | ✅ | 1 | corrective D-004 ; `REL-REF-UNRESOLVED`, `Snapshot.sect_pr`, 4 tests positifs ; suite 176→183 passed |
 
-## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (2/7)
+## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (3/7)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
 | J02-P1 | Paquet, ids, espaces de noms, erreurs | T3 | ✅ | 1 | `DocxPackage`, `ids`, `xmlns`, `errors` ; PartFactory XmlPart (sinon notes/commentaires en blobs) |
 | J02-P2 | Flux de texte d'un paragraphe | T2 | ✅ | 1 | `segments`/`visible_text`/`fields`/`position`, scan unique ; opaque par défaut ; 190 tests ; D-005 en attente |
-| J02-P3 | Plages : découpe, suppression, insertion, remplacement | T2 | ⬜ | 0 | |
+| J02-P3 | Plages : découpe, suppression, insertion, remplacement | T2 | 🔄 | 1 | |
 | J02-P4 | Formatage direct et enveloppes | T3 | ⬜ | 0 | |
-| J02-P5 | Recherche | T4 | ⬜ | 0 | |
+| J02-P5 | Recherche | T4 | ✅ | 1 | `find`, `iter_paragraphs` ; `"body"` alias de `"document"`, `Match.index int \| None` (D-006) |
 | J02-P6 | Révisions | T2 | ⬜ | 0 | |
 | J02-P7 | Review J02 | T2 | ⬜ | 0 | |
 
