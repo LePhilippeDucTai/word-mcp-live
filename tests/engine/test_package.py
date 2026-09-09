@@ -10,6 +10,7 @@ non-degrading if merely opening the document already degrades it.
 from __future__ import annotations
 
 import os
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ from tests.support.snapshot import diff, snapshot
 from word_document_server.engine import package as package_module
 from word_document_server.engine.errors import PackageError
 from word_document_server.engine.package import (
+    LIVE_CONTENT_TYPES,
     MAIN_STORY,
     DocxPackage,
     atomic_write_bytes,
@@ -36,6 +38,17 @@ from word_document_server.engine.package import (
 from word_document_server.engine.xmlns import qn
 
 FIXTURE_NAMES = sorted(ALL_FIXTURES)
+
+#: The XML parts every fixture carries that the engine never edits, and that must
+#: therefore never be parsed: python-docx's parser drops their indentation.
+BLOB_PARTNAMES = (
+    "/customXml/itemProps1.xml",
+    "/docProps/app.xml",
+    "/word/fontTable.xml",
+    "/word/stylesWithEffects.xml",
+    "/word/theme/theme1.xml",
+    "/word/webSettings.xml",
+)
 
 COMMENTS_EXTENDED_PARTNAME = "/word/commentsExtended.xml"
 COMMENTS_EXTENDED_XML = (
@@ -70,7 +83,7 @@ def test_open_from_bytes_exposes_the_same_document(fixture_docx) -> None:
     from_bytes = DocxPackage.open(path.read_bytes())
     assert from_bytes.document.find(qn("w:body")) is not None
     difference = diff(snapshot(from_path.to_bytes()), snapshot(from_bytes.to_bytes()))
-    assert difference.is_empty, difference.describe()
+    assert difference.is_empty(), difference.describe()
 
 
 def test_open_from_path_records_the_source_and_bytes_do_not(fixture_docx) -> None:
@@ -113,7 +126,7 @@ def test_open_then_save_is_lossless(name: str, fixture_docx, dest: Path) -> None
     DocxPackage.open(source).save(target)
 
     difference = diff(snapshot(source), snapshot(target))
-    assert difference.is_empty, difference.describe()
+    assert difference.is_empty(), difference.describe()
     assert validate_package(target) == []
 
 
@@ -127,7 +140,7 @@ def test_to_bytes_is_what_save_writes(name: str, dest: Path) -> None:
     pkg.save(target)
 
     difference = diff(snapshot(target), snapshot(pkg.to_bytes()))
-    assert difference.is_empty, difference.describe()
+    assert difference.is_empty(), difference.describe()
 
 
 # ----------------------------------------------------------------------------
@@ -189,11 +202,69 @@ def test_story_roots_are_the_live_elements(fixture_docx, dest: Path) -> None:
     assert "Edited through the story root." in snapshot(target).text("footnotes")
 
 
-def test_every_xml_part_is_loaded_live(fixture_docx) -> None:
-    pkg = DocxPackage.open(fixture_docx("comments"))
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("comments", {"/word/comments.xml", "/word/commentsExtended.xml"}),
+        ("footnotes", {"/word/footnotes.xml", "/word/endnotes.xml"}),
+        (
+            "combined",
+            {
+                "/word/document.xml",
+                "/word/header1.xml",
+                "/word/footer1.xml",
+                "/word/footnotes.xml",
+                "/word/endnotes.xml",
+                "/word/comments.xml",
+                "/word/styles.xml",
+                "/word/numbering.xml",
+            },
+        ),
+    ],
+)
+def test_whitelisted_parts_are_loaded_live(name: str, expected: set[str], fixture_docx) -> None:
+    # The parts the engine edits must be XmlPart: parsing a blob-backed Part
+    # yields a detached copy, and edits made on it vanish at save time.
+    pkg = DocxPackage.open(fixture_docx(name))
+    live = {
+        str(part.partname)
+        for part in pkg.package.iter_parts()
+        if part.content_type in LIVE_CONTENT_TYPES
+    }
+    assert expected <= live, "the fixture no longer carries the parts under test"
     for part in pkg.package.iter_parts():
-        if part.content_type.endswith("+xml"):
+        if part.content_type in LIVE_CONTENT_TYPES:
             assert isinstance(part, XmlPart), part.partname
+
+
+def test_parts_outside_the_whitelist_survive_byte_for_byte(fixture_docx, dest: Path) -> None:
+    # python-docx's parser is built with remove_blank_text=True, so a part loaded
+    # live comes back reindented.  These six are never edited by the engine, so
+    # they are never parsed -- and a plain open/save reproduces them exactly.
+    source = fixture_docx("combined")
+    pkg = DocxPackage.open(source)
+
+    for partname in BLOB_PARTNAMES:
+        part = pkg.part(partname)
+        assert not isinstance(part, XmlPart), f"{partname} is parsed, so it will be reindented"
+        assert isinstance(part, Part)
+
+    target = dest / "out.docx"
+    pkg.save(target)
+
+    with zipfile.ZipFile(source) as before, zipfile.ZipFile(target) as after:
+        for partname in BLOB_PARTNAMES:
+            member = partname.lstrip("/")
+            assert before.read(member) == after.read(member), member
+
+
+def test_root_of_refuses_a_part_that_is_not_loaded_live(fixture_docx) -> None:
+    pkg = DocxPackage.open(fixture_docx("simple"))
+    theme = pkg.part("/word/theme/theme1.xml")
+    with pytest.raises(PackageError, match="not loaded live"):
+        pkg.root_of(theme)
+    # The bytes stay readable; only the live root is withheld.
+    assert b"<a:theme" in theme.blob
 
 
 def test_story_name_maps_part_names_to_snapshot_ids() -> None:
