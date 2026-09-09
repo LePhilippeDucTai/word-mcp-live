@@ -28,9 +28,12 @@ _MAIN_RELATIONSHIP_TYPE_SUFFIX = "/officeDocument"
 # Parts that may carry bookmarks and tracked changes (document body stories).
 _BODY_PART_NAMES = {"word/document.xml", "word/footnotes.xml", "word/endnotes.xml"}
 
-# Ids 0 and 1 (and -1, seen from older producers) are reserved by Word/LibreOffice
-# for the separator and continuation-separator notes and are never referenced.
-_RESERVED_NOTE_IDS = {"-1", "0", "1"}
+# A footnote/endnote carrying `w:type` (`separator`, `continuationSeparator`,
+# `continuationNotice`) is a producer-owned placeholder, never referenced from the
+# body. Word and LibreOffice disagree on which *id* values these placeholders get
+# (LibreOffice: separator=0, continuation=1, real notes from 2; Word: separator=-1,
+# continuation=0, real notes from 1), so the id value carries no meaning on its own
+# -- only the presence of `w:type` marks a note as reserved.
 
 
 def _is_body_part(name: str) -> bool:
@@ -279,8 +282,9 @@ def validate_package(path: str | Path) -> list[Issue]:
             if content_root is not None:
                 for el in content_root.iter(f"{_W}{content_tag}"):
                     c_id = el.get(f"{_W}id")
-                    if c_id is not None and c_id not in _RESERVED_NOTE_IDS:
-                        content_ids.add(c_id)
+                    if c_id is None or el.get(f"{_W}type") is not None:
+                        continue
+                    content_ids.add(c_id)
             if ref_ids and content_root is None:
                 issues.append(
                     Issue(
