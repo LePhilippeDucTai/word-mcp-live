@@ -10,7 +10,7 @@ Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P2 | Fixtures générées : constructeur OOXML déterministe | T3 | ✅ | 1 | 19 fixtures, `build(name)`, `fixture_docx(name, directory=None)` |
 | J01-P3 | Producteur LibreOffice et validateur de paquet | T4 | ✅ | 2 | review fix 1 : notes réservées par `w:type`, 6 tests positifs de corruption |
 | J01-P4 | Instantané canonique et comparaison | T3 | ✅ | 2 | review fix 1 : pPr, enfants de run, tblPr/trPr/tcPr, sdtPr ; index `story_root.iter(w:p)` |
-| J01-P5 | Caractérisation des outils existants | T4 | ✅ | 1 | 3 bugs découverts en exécutant (voir docs/audit/destructive-ops.md) |
+| J01-P5 | Caractérisation des outils existants | T4 | ✅ | 2 | review fix 1 : 4 bugs caractérisés (voir docs/audit/destructive-ops.md) |
 | J01-P6 | Review J01 | T2 | 🔄 | 1 | |
 
 ## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (0/7)

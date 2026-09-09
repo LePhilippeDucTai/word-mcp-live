@@ -205,9 +205,9 @@ def test_set_paragraph_spacing_touches_only_the_targeted_paragraph(combined_path
     assert json.loads(result)["success"] is True
 
     after = snapshot(combined_path.read_bytes())
-    # Spacing is not part of ParagraphSignature (see tests/support/snapshot.py
-    # PARAGRAPH_INDEX_SPACE docstring): listing the paragraph as allowed still
-    # authorises the story part's digest to change, which is what happens.
+    # ppr is part of ParagraphSignature and does cover spacing, but this
+    # tool writes spacing via w:pPr/w:spacing: listing the paragraph as
+    # allowed is exactly what covers that change, nothing more.
     assert_unchanged_except(before, after, paragraphs=[snapshot_idx])
     assert validate_package(combined_path) == []
 
@@ -280,13 +280,24 @@ def test_accept_tracked_changes_touches_only_the_paragraphs_with_ins_or_del(
     before = snapshot(combined_path.read_bytes())
     idx_plain = _index_of(before, "Kept text, inserted text, and kept tail.")
     idx_nested = _index_of(before, "Before.  After.")
+    # Paragraph-mark revisions: the deleted mark's <w:del> and the inserted
+    # mark's <w:ins> both live in w:pPr/w:rPr, so accepting touches their
+    # ppr too, even though (see the xfail below) it never performs the
+    # paragraph merge that accepting a deleted mark should trigger.
+    idx_del_mark = _index_of(
+        before, "This paragraph mark is deleted, so this merges with the next one."
+    )
+    idx_ins_mark = _index_of(before, "This paragraph mark is inserted.")
 
     result = _run(accept_tracked_changes(str(combined_path)))
     assert json.loads(result)["success"] is True
 
     after = snapshot(combined_path.read_bytes())
     assert_unchanged_except(
-        before, after, paragraphs=[idx_plain, idx_nested], counters=["revisions"]
+        before,
+        after,
+        paragraphs=[idx_plain, idx_nested, idx_del_mark, idx_ins_mark],
+        counters=["revisions"],
     )
     assert validate_package(combined_path) == []
 
@@ -297,13 +308,23 @@ def test_reject_tracked_changes_touches_only_the_paragraphs_with_ins_or_del(
     before = snapshot(combined_path.read_bytes())
     idx_plain = _index_of(before, "Kept text, inserted text, and kept tail.")
     idx_nested = _index_of(before, "Before.  After.")
+    # Same paragraph-mark paragraphs as above: rejecting strips <w:del> and
+    # <w:ins> from their ppr too (see the xfail below for what rejecting an
+    # inserted mark should also do, and currently does not).
+    idx_del_mark = _index_of(
+        before, "This paragraph mark is deleted, so this merges with the next one."
+    )
+    idx_ins_mark = _index_of(before, "This paragraph mark is inserted.")
 
     result = _run(reject_tracked_changes(str(combined_path)))
     assert json.loads(result)["success"] is True
 
     after = snapshot(combined_path.read_bytes())
     assert_unchanged_except(
-        before, after, paragraphs=[idx_plain, idx_nested], counters=["revisions"]
+        before,
+        after,
+        paragraphs=[idx_plain, idx_nested, idx_del_mark, idx_ins_mark],
+        counters=["revisions"],
     )
     assert validate_package(combined_path) == []
 
@@ -434,6 +455,67 @@ def test_protect_then_unprotect_roundtrips_bytes(combined_path):
 # assertion. See docs/audit/destructive-ops.md for the human-readable
 # summary of these reasons.
 # --------------------------------------------------------------------------
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "accept_tracked_changes only strips the <w:del> marker from a "
+        "deleted paragraph mark's w:pPr/w:rPr (root.iter(W('del')) matches "
+        "it exactly like a run-level deletion); it never merges the "
+        "paragraph with the following one the way Word does when a deleted "
+        "paragraph mark is accepted. The revision is recorded as accepted "
+        "(the marker is gone, the counter drops) but its actual effect -- "
+        "one fewer paragraph break -- is never applied."
+    ),
+)
+def test_accept_tracked_changes_does_not_merge_a_deleted_paragraph_mark(
+    combined_path,
+):
+    before = snapshot(combined_path.read_bytes())
+    n_before = len(before.story_paragraphs("document"))
+
+    result = _run(accept_tracked_changes(str(combined_path)))
+    assert json.loads(result)["success"] is True
+
+    after = snapshot(combined_path.read_bytes())
+    n_after = len(after.story_paragraphs("document"))
+    assert n_after == n_before - 1, (
+        "accepting the deleted paragraph mark should merge "
+        "'This paragraph mark is deleted...' into the paragraph that "
+        "follows it, removing one paragraph from the document story"
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "reject_tracked_changes has the symmetric bug: rejecting an "
+        "inserted paragraph mark should undo the split it introduced and "
+        "merge the paragraph back with the one that follows, the way Word "
+        "does. Instead the tool only strips the <w:ins> marker from "
+        "w:pPr/w:rPr (root.iter(W('ins')) matches it exactly like a "
+        "run-level insertion, and parent.remove(ins) is a no-op merge "
+        "because the element has no children to reinsert), leaving the "
+        "paragraph break in place."
+    ),
+)
+def test_reject_tracked_changes_does_not_merge_an_inserted_paragraph_mark(
+    combined_path,
+):
+    before = snapshot(combined_path.read_bytes())
+    n_before = len(before.story_paragraphs("document"))
+
+    result = _run(reject_tracked_changes(str(combined_path)))
+    assert json.loads(result)["success"] is True
+
+    after = snapshot(combined_path.read_bytes())
+    n_after = len(after.story_paragraphs("document"))
+    assert n_after == n_before - 1, (
+        "rejecting the inserted paragraph mark should merge "
+        "'This paragraph mark is inserted.' back into the paragraph that "
+        "follows it, removing one paragraph from the document story"
+    )
 
 
 @pytest.mark.xfail(

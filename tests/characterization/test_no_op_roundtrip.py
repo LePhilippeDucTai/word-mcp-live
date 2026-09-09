@@ -4,8 +4,10 @@ For every fixture (constructor-built and LibreOffice-produced), this pins
 down what a *bare* python-docx round trip does to a ``.docx`` package when
 none of this project's tools are involved and the ``save_utils`` monkey-patch
 (:func:`word_document_server.utils.save_utils.install_save_hook`) is never
-installed. That hook is only ever installed by ``main.py`` at server start,
-so it is naturally absent here -- this module never imports it.
+installed. ``word_document_server.main`` *is* imported during a test session
+(transitively, via the root ``__init__.py``), but ``install_save_hook`` is
+only ever imported and called inside ``main.py``'s ``run_server()``, which
+this module never calls -- so the hook stays uninstalled here.
 
 python-docx parts registered under a specialised ``Part`` subclass
 (document, styles, numbering, header/footer...) get re-serialised; every
