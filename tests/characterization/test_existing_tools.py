@@ -597,17 +597,13 @@ def test_format_text_keeps_untouched_run_formatting(combined_path):
     assert bold_runs, "the untouched 'bold ' run should keep its <w:b/> formatting"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "add_table_of_contents rebuilds the whole document in a blank "
-        "Document(): only paragraph.text/cell.text and style names survive. "
-        "comments.xml, commentsExtended.xml, footnotes.xml, endnotes.xml, "
-        "headers/footers, images, hyperlinks, bookmarks, fields, tracked "
-        "changes and table merges are all dropped. Already flagged "
-        "DESTRUCTIVE in the tool docstring (J01-P1)."
-    ),
-)
+# Was xfail(strict=True) until J03-P5: add_table_of_contents used to rebuild the
+# whole document in a blank Document(), keeping only paragraph.text/cell.text
+# and style names -- comments.xml, commentsExtended.xml, footnotes.xml,
+# endnotes.xml, headers/footers, images, hyperlinks, bookmarks, fields, tracked
+# changes and table merges were all dropped. The tool now inserts a "Table of
+# Contents" content control holding a TOC field into the document it was given,
+# and touches nothing else. See tests/tools/test_toc.py.
 def test_add_table_of_contents_drops_ancillary_parts(combined_path):
     before = snapshot(combined_path.read_bytes())
     assert "word/comments.xml" in before.parts  # sanity: the fixture has one
@@ -633,15 +629,12 @@ def test_merge_documents_drops_ancillary_parts(tmp_path, combined_path):
     assert "word/comments.xml" in after.parts
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "add_header_footer clears every existing paragraph of the header "
-        "(header.paragraphs -> p.clear()) before writing the new text: the "
-        "fixture's header run carrying an inline picture is discarded even "
-        "though the picture has nothing to do with the new header text."
-    ),
-)
+# Was xfail(strict=True) until J03-P5: add_header_footer used to clear every
+# existing paragraph of the header (header.paragraphs -> p.clear()) before
+# writing the new text, discarding the fixture's run carrying an inline picture.
+# It now rewrites the visible text of the first paragraph through
+# engine.ranges.replace_range, which leaves zero-width content sitting at the
+# range's boundary -- the picture -- exactly where it was.
 def test_add_header_footer_clears_existing_header_content(combined_path):
     before = snapshot(combined_path.read_bytes())
     before_runs = before.paragraphs[("header1", 0)].runs
@@ -678,17 +671,13 @@ def test_create_custom_style_never_creates_the_style(combined_path):
     assert b'w:styleId="ProbeStyle"' in styles_xml
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "replace_block_between_manual_anchors compares el.tag == CT_P.tag "
-        "(and CT_Tbl.tag), but CT_P/CT_Tbl are lxml element classes "
-        "registered via element_class_lookup: CT_P.tag reads the unbound "
-        "'tag' attribute descriptor of lxml.etree._Element, never a string, "
-        "so the comparison is always False. start_idx stays None and the "
-        "tool unconditionally reports the start anchor as not found."
-    ),
-)
+# Was xfail(strict=True) until J03-P5: replace_block_between_manual_anchors
+# compared el.tag == CT_P.tag, but CT_P is an lxml element *class* registered
+# via element_class_lookup, so CT_P.tag read the unbound 'tag' attribute
+# descriptor of lxml.etree._Element and was never equal to a string. start_idx
+# stayed None and the tool unconditionally reported the start anchor as not
+# found. The block walk now compares against qn("w:p"). See
+# tests/tools/test_layout_blocks.py.
 def test_replace_block_between_manual_anchors_never_finds_the_anchor(combined_path):
     before = snapshot(combined_path.read_bytes())
     assert "Second paragraph, with a trailing sentence." in before.text()  # sanity
