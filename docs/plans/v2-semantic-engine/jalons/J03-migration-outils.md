@@ -112,7 +112,7 @@ id: J03-P5
 kind: implement
 tier: T3
 size: M
-depends_on: [J03-P1]
+depends_on: [J03-P1, J03-P9]
 files:
   - word_document_server/tools/content_tools.py
   - word_document_server/tools/layout_tools.py
@@ -166,7 +166,7 @@ id: J03-P7
 kind: implement
 tier: T4
 size: M
-depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6]
+depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P9]
 files:
   - word_document_server/utils/save_utils.py
   - word_document_server/main.py
@@ -188,6 +188,31 @@ Tests : écriture interrompue (exception injectée) laisse l'original intact et 
 ### Context
 `utils/save_utils.py`, `main.py:1937-1998`, `tools/protection_tools.py:26-80, 240-280`.
 
+## J03-P9 — Correctif D-012 : caractérisation des tracked changes alignée sur J03-P2
+
+```yaml
+id: J03-P9
+kind: implement
+tier: T4
+size: S
+depends_on: [J03-P2]
+files:
+  - tests/characterization/test_existing_tools.py
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/characterization -q"
+  - "! grep -q -E 'def test_(track_replace_infinite_loop_when_replacement_contains_original|accept_tracked_changes_does_not_merge_a_deleted_paragraph_mark|reject_tracked_changes_does_not_merge_an_inserted_paragraph_mark)' tests/characterization/test_existing_tools.py"
+  - "grep -q 'def test_track_replace_terminates_when_replacement_contains_original' tests/characterization/test_existing_tools.py && grep -q 'def test_accept_tracked_changes_merges_a_deleted_paragraph_mark' tests/characterization/test_existing_tools.py && grep -q 'def test_reject_tracked_changes_merges_an_inserted_paragraph_mark' tests/characterization/test_existing_tools.py"
+```
+
+### Scope
+J03-P2 (✅) a rendu vrais trois comportements que ce module figeait en `xfail(strict=True)` (XPASS, donc rouge) et a changé l'ensemble des paragraphes que `accept`/`reject` touchent ; le module n'était dans les `files` d'aucune part de J03. Aligner le harnais sur le moteur, sans toucher ni au moteur ni à `tests/support/`.
+Trois xfail à retirer, tests renommés sur le modèle de `test_format_text_keeps_untouched_run_formatting` (commentaire « Was xfail(strict=True) until J03-P2: … » décrivant l'ancien défaut) : `test_track_replace_infinite_loop_when_replacement_contains_original` → `test_track_replace_terminates_when_replacement_contains_original` (garder `@pytest.mark.timeout(10)` ; ajouter l'assertion positive : texte visible du paragraphe = `This is a Risk Risk statement.`, une seule occurrence traitée) ; `test_accept_tracked_changes_does_not_merge_a_deleted_paragraph_mark` → `test_accept_tracked_changes_merges_a_deleted_paragraph_mark` ; `test_reject_tracked_changes_does_not_merge_an_inserted_paragraph_mark` → `test_reject_tracked_changes_merges_an_inserted_paragraph_mark` (assertion `n_after == n_before - 1` conservée, messages retournés).
+Deux tests `…touches_only_the_paragraphs_with_ins_or_del` à réécrire : la fusion retire un `w:p` de `document`, donc tout paragraphe qui suit change de clé dans l'espace de snapshot et `assert_unchanged_except` (comparaison par clé `(story, index)` ; `parts=` ne relâche pas les paragraphes d'une story) les voit tous modifiés. Ne pas énumérer les paragraphes décalés dans `paragraphs=` (assertion vacueuse) : réindexer `after` (clés `paragraphs` ≥ index de la clé absorbée décalées de +1, `dataclasses.replace` sur `Snapshot` et sur chaque `ParagraphSignature` ; les clés `tables` sont numérotées à part et ne bougent pas) puis `assert_unchanged_except(before, after_réindexé, paragraphs=[…], counters=["revisions"])`. Ensemble réel : `accept` fusionne `idx_del_mark` avec `idx_ins_mark` (= `idx_del_mark + 1`, la paire est adjacente dans la fixture) → `[idx_plain, idx_nested, idx_del_mark, idx_ins_mark]`, `idx_ins_mark` étant la clé absorbée ; `reject` fusionne `idx_ins_mark` avec le paragraphe suivant → `[idx_plain, idx_nested, idx_del_mark, idx_ins_mark, idx_ins_mark + 1]`. Vérifier en plus le texte du paragraphe fusionné (concaténation des deux textes). Commentaires des deux tests mis à jour (plus de renvoi à un xfail).
+Rien d'autre ne change : les xfail restants (TOC, fusion, en-tête, style, ancres) attendent J03-P5/P6 ; `docs/audit/destructive-ops.md` est mis à jour par J06.
+
+### Context
+`tests/characterization/test_existing_tools.py:289-341, 472-530, 665-684` ; `tests/support/snapshot.py::assert_unchanged_except` (1029-1155, comparaison par clé), `Snapshot.paragraphs`, `ParagraphSignature` ; sémantique de fusion figée par `tests/tools/test_tracked_changes.py` (`test_accepting_everything_applies_the_paragraph_mark_and_names_what_it_skipped`, `test_a_refused_selection_writes_nothing`) ; paire de marques : `tests/fixtures/builders.py:692-705`.
+
 ## J03-P8 — Review J03
 
 ```yaml
@@ -195,7 +220,7 @@ id: J03-P8
 kind: review
 tier: T2
 size: S
-depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P7]
+depends_on: [J03-P1, J03-P2, J03-P3, J03-P4, J03-P5, J03-P6, J03-P7, J03-P9]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/tools tests/characterization tests/engine -q --timeout=60"

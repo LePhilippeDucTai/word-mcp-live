@@ -18,9 +18,9 @@ ligne « convert … »), parce que `soffice` s'attache à l'instance déjà lan
 successives de l'acceptation de J03-P1 sur la base ont donné 1 échec, puis 2 échecs sur d'autres
 tests, puis 72 passed — victimes différentes à chaque fois, aucune régression de code.
 
-Portée : `tests/characterization` figure dans les acceptations de J03-P1, J03-P5, J03-P7 et J03-P8,
-et J06-P3 s'appuie aussi sur LibreOffice. Chaque vague parallèle de J03→J06 rejouera ce faux rouge,
-et un vrai rouge y sera indistinguable d'un faux.
+Portée : `tests/characterization` figure dans les acceptations de J03-P1, J03-P5, J03-P7, J03-P8 et
+J03-P9, et J06-P3 s'appuie aussi sur LibreOffice. Chaque vague parallèle de J03→J06 rejouera ce faux
+rouge, et un vrai rouge y sera indistinguable d'un faux.
 
 Correctif : passer `-env:UserInstallation=file://<profil temporaire unique>` à chaque invocation de
 `soffice` dans `convert()`. `tests/support/libreoffice.py` n'est dans les `files` d'aucune part :
@@ -36,4 +36,4 @@ Source : orchestrateur s4, merge de J03-P1.
 
 ## Queue
 
-- Qui répare les 5 rouges de `tests/characterization/test_existing_tools.py` laissés par J03-P2 ? Mesuré sur la base le 2026-09-09 après le merge : 3 `xfail(strict=True)` deviennent XPASS (`test_track_replace_infinite_loop_when_replacement_contains_original`, `test_accept_tracked_changes_does_not_merge_a_deleted_paragraph_mark`, `test_reject_tracked_changes_does_not_merge_an_inserted_paragraph_mark`) et 2 tests verts cassent réellement (`test_accept/reject_tracked_changes_touches_only_the_paragraphs_with_ins_or_del`, dont les instantanés sont périmés par la fusion de marque de paragraphe entérinée en D-008 : réécriture, pas simple retrait de `xfail`). Le fichier n'est dans les `files` d'aucune part de J03. Options : (1) part corrective (T4, S) sur ce seul fichier, dispatchée avant J03-P5 — **reco**, l'acceptation de J03-P5 inclut `tests/characterization` et ne peut pas passer tant que la base est rouge, et un rouge connu masque tout vrai rouge des vagues suivantes ; (2) laisser à J03-P7, à qui le plan assigne déjà le balayage (`plus aucun xfail … pour les outils migrés en J03`) — mais J03-P7 dépend de J03-P1..P6, donc la base reste rouge pendant les merges de J03-P5 et J03-P6 ; (3) élargir les `files` de J03-P5 à ce fichier. Bloque : J03-P5, puis J03-P7 et J03-P8 par dépendance. Source : J03-P2 (s4).
+(vide)

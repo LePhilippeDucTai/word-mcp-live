@@ -29,18 +29,19 @@ Updated 2026-09-09 · s4 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J02-P10 | Correctif D-009 : index V2 sans zones de texte, tracked_insert sans sortie de conteneur, réexports | T3 | ✅ | 1 | corrective D-009 ; fixtures `text_boxes` et `tracked_containers` ; repousse du `w:ins` dans le conteneur ; hors périmètre de J02-P7 (close), relue par J03-P8 ; suite 780 → 830 passed, 9 xfailed |
 | J02-P7 | Review J02 | T2 | ✅ | 1 | round 1 sans finding bloquant ; 780 passed / 9 xfailed, build et lint verts ; 2 should-fix + 1 optional → D-009 |
 
-## J03 — Migration des outils existants sur le cœur (0/8)
+## J03 — Migration des outils existants sur le cœur (0/9)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
 | J03-P1 | search_and_replace et find_text_in_document | T3 | ✅ | 1 | `replace_text_everywhere` + `ReplacementReport` ; `, N skipped (inside fields)` ; aucun xfail de caractérisation ne visait ces 2 outils (D-010) |
-| J03-P2 | Tracked changes sur le moteur | T2 | ✅ | 1 | droite→gauche (boucle infinie supprimée par construction), toutes les stories ; **laisse 5 rouges dans `tests/characterization/test_existing_tools.py`** (3 XPASS strict + 2 instantanés périmés par D-008) → décision en file |
+| J03-P2 | Tracked changes sur le moteur | T2 | ✅ | 1 | droite→gauche (boucle infinie supprimée par construction), toutes les stories ; **laisse 5 rouges dans `tests/characterization/test_existing_tools.py`** (3 XPASS strict + 2 instantanés périmés par D-008) → corrigé par J03-P9 (D-012) |
 | J03-P3 | Commentaires et hyperliens sur le moteur | T3 | ✅ | 1 | fil Word complet (`commentsExtended`/`commentsIds`/`people`), hyperliens `add`/`remove`/`list` ; hors `files` : `parts=` élargi sur 1 assertion de `tests/characterization/test_existing_tools.py` |
 | J03-P4 | format_text et format_cell_text sans reconstruction | T3 | ✅ | 1 | `resolve`+`apply_rpr`, plus de `run.clear()` ; `resolve_color`/`run_patch` dans `core/tables.py` ; hors `files` : 1 xfail retiré dans `tests/characterization/test_existing_tools.py` |
-| J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⏸ | 0 | son acceptation inclut `tests/characterization`, rouge depuis J03-P2 |
+| J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⏸ | 0 | depends_on étendu à J03-P9 (D-012) |
 | J03-P6 | merge_documents par import d'éléments | T2 | ✅ | 1 | `append_document(target, source, page_break) -> Report` ; document fusionné = premier source (garde styles/sections/en-têtes) ; `copy_table` supprimé (plus d'appelant) ; refus explicite si commentaires/notes dans la source |
-| J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ⬜ | 0 | |
-| J03-P8 | Review J03 | T2 | ⬜ | 0 | |
+| J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ⬜ | 0 | depends_on étendu à J03-P9 |
+| J03-P9 | Correctif D-012 : caractérisation des tracked changes alignée sur J03-P2 | T4 | ⬜ | 0 | ajoutée par le plan update (D-012) |
+| J03-P8 | Review J03 | T2 | ⬜ | 0 | depends_on étendu à J03-P9 |
 
 ## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/6)
 

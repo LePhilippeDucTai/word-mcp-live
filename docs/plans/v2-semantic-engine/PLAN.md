@@ -46,7 +46,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 |-----|-----------|-------|------------|--------------|------|
 | J01 | Harnais de fidélité documentaire | 7 | — | opus/high | jalons/J01-harnais-fidelite.md |
 | J02 | Cœur OOXML : paquet, flux de texte, plages, révisions | 10 | J01 | opus/high | jalons/J02-coeur-ooxml.md |
-| J03 | Migration des outils existants sur le cœur | 8 | J02 | opus/high | jalons/J03-migration-outils.md |
+| J03 | Migration des outils existants sur le cœur | 9 | J02 | opus/high | jalons/J03-migration-outils.md |
 | J04 | Surface V2 : adressage, inspection, dry-run, capacités, docs | 6 | J03 | opus/high | jalons/J04-surface-v2.md |
 | J05 | Styles, thème, format effectif, numérotation, styles de tableau | 6 | J04 | opus/high | jalons/J05-styles-theme-numerotation.md |
 | J06 | Audit, comparaison et validation de bout en bout | 4 | J05 | opus/high | jalons/J06-audit-validation.md |
