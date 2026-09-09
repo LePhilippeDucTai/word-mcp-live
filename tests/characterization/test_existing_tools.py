@@ -233,6 +233,18 @@ def test_add_comment_touches_only_the_target_paragraph_and_comments_part(
         before,
         after,
         paragraphs=[idx, ("comments", n_comments)],
+        # Since J03-P3 a comment is written as Word writes one: the text in
+        # comments.xml, the thread state in commentsExtended.xml, the durable
+        # identity in commentsIds.xml and the author in people.xml, each
+        # related from word/document.xml.  The three side-car parts and the
+        # rels part are therefore expected to change; the document itself is
+        # still guarded paragraph by paragraph.
+        parts=[
+            "word/commentsExtended.xml",
+            "word/commentsIds.xml",
+            "word/people.xml",
+            "word/_rels/document.xml.rels",
+        ],
         counters=["comments", "comment_references"],
     )
     assert validate_package(combined_path) == []
