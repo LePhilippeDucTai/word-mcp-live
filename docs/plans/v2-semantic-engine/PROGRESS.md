@@ -1,0 +1,80 @@
+# PROGRESS — v2-semantic-engine
+
+Updated 2026-09-09 · s0 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
+
+## J01 — Harnais de fidélité documentaire (0/6)
+
+| Part | Title | Tier | Status | Tries | Note |
+|------|-------|------|--------|-------|------|
+| J01-P1 | Outillage : pytest, groupe dev, ruff, script de vérification, avertissements destructifs | T5 | ⬜ | 0 | |
+| J01-P2 | Fixtures générées : constructeur OOXML déterministe | T3 | ⬜ | 0 | |
+| J01-P3 | Producteur LibreOffice et validateur de paquet | T4 | ⬜ | 0 | |
+| J01-P4 | Instantané canonique et comparaison | T3 | ⬜ | 0 | |
+| J01-P5 | Caractérisation des outils existants | T4 | ⬜ | 0 | |
+| J01-P6 | Review J01 | T2 | ⬜ | 0 | |
+
+## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (0/7)
+
+| Part | Title | Tier | Status | Tries | Note |
+|------|-------|------|--------|-------|------|
+| J02-P1 | Paquet, ids, espaces de noms, erreurs | T3 | ⬜ | 0 | |
+| J02-P2 | Flux de texte d'un paragraphe | T2 | ⬜ | 0 | |
+| J02-P3 | Plages : découpe, suppression, insertion, remplacement | T2 | ⬜ | 0 | |
+| J02-P4 | Formatage direct et enveloppes | T3 | ⬜ | 0 | |
+| J02-P5 | Recherche | T4 | ⬜ | 0 | |
+| J02-P6 | Révisions | T2 | ⬜ | 0 | |
+| J02-P7 | Review J02 | T2 | ⬜ | 0 | |
+
+## J03 — Migration des outils existants sur le cœur (0/8)
+
+| Part | Title | Tier | Status | Tries | Note |
+|------|-------|------|--------|-------|------|
+| J03-P1 | search_and_replace et find_text_in_document | T3 | ⬜ | 0 | |
+| J03-P2 | Tracked changes sur le moteur | T2 | ⬜ | 0 | |
+| J03-P3 | Commentaires et hyperliens sur le moteur | T3 | ⬜ | 0 | |
+| J03-P4 | format_text et format_cell_text sans reconstruction | T3 | ⬜ | 0 | |
+| J03-P5 | Opérations destructrices : TOC, en-têtes, suppression, signets, blocs | T3 | ⬜ | 0 | |
+| J03-P6 | merge_documents par import d'éléments | T2 | ⬜ | 0 | |
+| J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ⬜ | 0 | |
+| J03-P8 | Review J03 | T2 | ⬜ | 0 | |
+
+## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/6)
+
+| Part | Title | Tier | Status | Tries | Note |
+|------|-------|------|--------|-------|------|
+| J04-P1 | Locators et inspection | T3 | ⬜ | 0 | |
+| J04-P2 | Outils `doc_*` texte, enregistrement, rapport structuré | T3 | ⬜ | 0 | |
+| J04-P3 | Plateformes, TOOLS.md généré, garde-fous de dérive, registre corrigé | T4 | ⬜ | 0 | |
+| J04-P4 | Plantages macOS prouvés par lecture | T4 | ⬜ | 0 | |
+| J04-P5 | Lot atomique `doc_apply_edits` | T4 | ⬜ | 0 | |
+| J04-P6 | Review J04 | T2 | ⬜ | 0 | |
+
+## J05 — Styles, thème, format effectif, numérotation, styles de tableau (0/6)
+
+| Part | Title | Tier | Status | Tries | Note |
+|------|-------|------|--------|-------|------|
+| J05-P1 | Thème et modèle de style en lecture | T3 | ⬜ | 0 | |
+| J05-P2 | Format effectif avec provenance | T3 | ⬜ | 0 | |
+| J05-P3 | Écriture de styles paragraphe et caractère | T3 | ⬜ | 0 | |
+| J05-P4 | Numérotation | T3 | ⬜ | 0 | |
+| J05-P5 | Styles de tableau | T4 | ⬜ | 0 | |
+| J05-P6 | Review J05 | T2 | ⬜ | 0 | |
+
+## J06 — Audit, comparaison et validation de bout en bout (0/4)
+
+| Part | Title | Tier | Status | Tries | Note |
+|------|-------|------|--------|-------|------|
+| J06-P1 | Audit documentaire | T3 | ⬜ | 0 | |
+| J06-P2 | Comparaison sémantique | T4 | ⬜ | 0 | |
+| J06-P3 | Scénarios de bout en bout et documentation | T4 | ⬜ | 0 | |
+| J06-P4 | Review J06 | T2 | ⬜ | 0 | |
+
+## Next session
+
+- Ready: J01-P1
+- Orchestrator: opus/high
+- Decision: none
+
+## Log
+
+- 2026-09-09 s0: plan created

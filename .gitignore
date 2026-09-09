@@ -24,3 +24,7 @@ mcp-config.json
 # MCP publisher
 mcp-publisher.exe
 *.mcpb
+
+# Claude Code worktrees and pytest cache
+.claude/worktrees/
+.pytest_cache/
