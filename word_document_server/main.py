@@ -1791,11 +1791,12 @@ def register_tools():
         footer_text: str = None,
         header_alignment: str = "center",
         footer_alignment: str = "center",
+        replace_content: bool = True,
     ):
         """Add header and/or footer text to a document section."""
         return layout_tools.add_header_footer(
             filename, section_index, header_text, footer_text,
-            header_alignment, footer_alignment,
+            header_alignment, footer_alignment, replace_content,
         )
 
     @mcp.tool(

@@ -38,13 +38,17 @@ from tests.support.snapshot import assert_unchanged_except, snapshot
 from word_document_server.engine.package import DocxPackage
 from word_document_server.engine.textmodel import visible_text
 from word_document_server.engine.xmlns import qn
-from word_document_server.tools.content_tools import delete_paragraph
+from word_document_server.tools.content_tools import (
+    add_table_of_contents,
+    delete_paragraph,
+)
 from word_document_server.tools.layout_tools import add_bookmark, add_header_footer
 from word_document_server.utils.document_utils import (
     delete_block_under_header,
     replace_block_between_manual_anchors,
     replace_paragraph_block_below_header,
 )
+from word_document_server.utils.extended_document_utils import find_text
 
 BLOCK_TAGS = (qn("w:p"), qn("w:tbl"), qn("w:sdt"))
 
@@ -71,10 +75,33 @@ def _texts(path: Path) -> list[str]:
 
 
 def _paragraph_texts(path: Path) -> list[str]:
-    """Visible text of the body paragraphs, in the tools' index space."""
+    """Visible text of the paragraphs that are children of the body."""
     return [
         visible_text(child) for child in _body(path) if child.tag == qn("w:p")
     ]
+
+
+def _all_paragraphs(path: Path) -> list:
+    """Every ``w:p`` of the body, nesting included, in document order.
+
+    Deliberately independent of the engine's own filter: on a document holding
+    no table and no text box this is exactly the V2 index space the tools
+    address, so a test can state what the space contains without asking the
+    code under test what it thinks the space is.
+    """
+    return list(_body(path).iter(qn("w:p")))
+
+
+def _all_paragraph_texts(path: Path) -> list[str]:
+    """Visible text of every ``w:p`` of the body, nesting included."""
+    return [visible_text(paragraph) for paragraph in _all_paragraphs(path)]
+
+
+def _v2_index_of(path: Path, text: str) -> int:
+    """Index ``find_text`` reports for the single paragraph holding `text`."""
+    occurrences = find_text(str(path), text)["occurrences"]
+    assert len(occurrences) == 1, occurrences
+    return occurrences[0]["paragraph_index"]
 
 
 def _section_break(paragraph) -> Any:
@@ -189,18 +216,111 @@ def test_a_missing_document_is_reported_not_created(tmp_path) -> None:
     assert not path.exists()
 
 
-def test_a_paragraph_inside_a_content_control_is_not_in_the_index_space(
+def test_a_paragraph_inside_a_content_control_is_in_the_index_space(
     fixture_docx,
 ) -> None:
-    """The index space is python-docx's ``Document.paragraphs``: body children."""
+    """The index space is the V2 one: block content control content counts.
+
+    Index 1 of ``content_controls`` is the paragraph *inside* the block
+    ``w:sdt``, not the second child of the body; deleting it must reach into
+    the control rather than remove the body child that used to sit there.
+    """
     path = fixture_docx("content_controls")
-    before = _paragraph_texts(path)
-    assert "Paragraph inside a block content control." not in before  # sanity
+    nested = "Paragraph inside a block content control."
+    children_before = _paragraph_texts(path)
+    assert nested not in children_before  # sanity: it is not a child of the body
 
     _run(delete_paragraph(str(path), 1))
 
-    assert _paragraph_texts(path) == before[:1] + before[2:]
+    assert _paragraph_texts(path) == children_before, "no body child may be removed"
+    assert nested not in _all_paragraph_texts(path)
     assert any(block.tag == qn("w:sdt") for block in _blocks(path))
+    assert validate_package(path) == []
+
+
+# --------------------------------------------------------------------------------------
+# delete_paragraph / add_bookmark: one index space, shared with find_text
+# --------------------------------------------------------------------------------------
+#
+# add_table_of_contents puts a block w:sdt in the body, so the milestone itself
+# produces the documents where the two spaces part company: every paragraph of
+# the table of contents counts in the V2 index find_text reports and none of
+# them is a child of the body.  A tool that kept indexing body children would
+# act on a paragraph that many positions further up, silently.
+
+
+BODY_TEXTS = ("Alpha", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot")
+
+
+def _document_with_a_table_of_contents(path: Path) -> Path:
+    document = PDocument()
+    document.add_heading("Titre", level=1)
+    for text in BODY_TEXTS:
+        document.add_paragraph(text)
+    document.save(str(path))
+    assert "Table of contents" in _run(add_table_of_contents(str(path)))
+    assert any(block.tag == qn("w:sdt") for block in _blocks(path))  # sanity
+    return path
+
+
+def test_the_paragraph_deleted_is_the_one_find_text_reported(tmp_path) -> None:
+    path = _document_with_a_table_of_contents(tmp_path / "toc.docx")
+    before = _all_paragraph_texts(path)
+    index = _v2_index_of(path, "Charlie")
+
+    result = _run(delete_paragraph(str(path), index))
+
+    assert result == f"Paragraph at index {index} deleted successfully."
+    assert _all_paragraph_texts(path) == [t for t in before if t != "Charlie"]
+    assert validate_package(path) == []
+
+
+def test_the_paragraph_bookmarked_is_the_one_find_text_reported(tmp_path) -> None:
+    path = _document_with_a_table_of_contents(tmp_path / "toc.docx")
+    index = _v2_index_of(path, "Charlie")
+
+    result = _run(add_bookmark(str(path), index, "Marked"))
+
+    assert json.loads(result)["success"] is True
+    marked = [
+        visible_text(paragraph)
+        for paragraph in _body(path).iter(qn("w:p"))
+        for marker in paragraph.findall(qn("w:bookmarkStart"))
+        if marker.get(qn("w:name")) == "Marked"
+    ]
+    assert marked == ["Charlie"]
+    assert validate_package(path) == []
+
+
+def test_a_nested_paragraph_hands_its_section_break_outside_the_control(
+    fixture_docx,
+) -> None:
+    """The break lands on the previous paragraph of the index space.
+
+    Inside a content control the deleted paragraph has no preceding sibling
+    ``w:p`` at all, so a carry-over that looked at siblings would drop the
+    section break and take the page setup of everything above with it.
+    """
+    from lxml import etree
+
+    path = fixture_docx("content_controls")
+    pkg = DocxPackage.open(str(path))
+    body = pkg.document.find(qn("w:body"))
+    nested = body.find(f"{qn('w:sdt')}/{qn('w:sdtContent')}/{qn('w:p')}")
+    assert nested is not None  # sanity
+    assert next(iter(nested.itersiblings(qn("w:p"), preceding=True)), None) is None
+    properties = etree.SubElement(nested, qn("w:pPr"))
+    properties.append(copy.deepcopy(body.find(qn("w:sectPr"))))
+    nested.insert(0, properties)
+    pkg.save(str(path))
+    carried = _canonical(_section_break(_all_paragraphs(path)[1]))
+
+    _run(delete_paragraph(str(path), 1))
+
+    above = _all_paragraphs(path)[0]
+    moved = _section_break(above)
+    assert moved is not None, "the section break must not go with the paragraph"
+    assert _canonical(moved) == carried
     assert validate_package(path) == []
 
 
@@ -377,6 +497,27 @@ def test_replace_content_false_adds_a_paragraph_and_keeps_the_fields(
     assert after.counters["fields"] == fields_before
     assert after.paragraphs[("footer1", 0)].text == before.paragraphs[("footer1", 0)].text
     assert after.paragraphs[("footer1", 1)].text == "Plain footer"
+    assert validate_package(path) == []
+
+
+def test_the_mcp_tool_exposes_replace_content(fixture_docx) -> None:
+    """The escape hatch the refusal names has to be reachable from a client.
+
+    A footer holding a ``PAGE`` field -- what Word puts there by default -- is
+    refused with "Pass replace_content=False", so a wrapper that did not
+    forward the parameter turned that advice into advice no MCP client could
+    follow, and made the footer impossible to write at all.
+    """
+    from word_document_server import main
+
+    main.register_tools()
+    tool = asyncio.run(main.mcp.get_tool("add_header_footer"))
+    assert "replace_content" in tool.parameters["properties"]
+
+    path = fixture_docx("headers_footers")
+    result = _run(tool.fn(str(path), footer_text="Plain footer", replace_content=False))
+
+    assert json.loads(result)["added"] == ["footer"]
     assert validate_package(path) == []
 
 

@@ -22,6 +22,7 @@ from word_document_server.utils.document_utils import (
     attach_ppr_child,
     body_element,
     body_paragraphs,
+    indexed_paragraphs,
     paragraph_style_label,
     paragraph_style_names,
     styles_root,
@@ -541,8 +542,8 @@ async def add_table_of_contents(filename: str, title: str = "Table of Contents",
         return f"Failed to add table of contents: {str(e)}"
 
 
-def _carry_over_section_properties(paragraph) -> None:
-    """Move a paragraph's ``w:sectPr`` onto the paragraph before it.
+def _carry_over_section_properties(paragraph, previous) -> None:
+    """Move `paragraph`'s ``w:sectPr`` onto `previous`, the paragraph before it.
 
     A ``w:sectPr`` inside a ``w:pPr`` describes the section that *ends* at that
     paragraph -- it is the section break itself. Removing the paragraph without
@@ -550,11 +551,17 @@ def _carry_over_section_properties(paragraph) -> None:
     footer references of everything above it along, which is a page-layout loss
     no caller asked for.
 
-    When the preceding paragraph already carries a ``w:sectPr`` of its own, its
-    section ends there and the one being moved would cover no content at all, so
-    it is left behind; the same reasoning applies when the deleted paragraph is
-    the first of the body. In both cases the body's own final ``w:sectPr``, which
-    is not attached to any paragraph, still describes the document's layout.
+    `previous` is the paragraph before `paragraph` in the V2 index space, which
+    is not always its preceding sibling: a paragraph nested in a block content
+    control may have no sibling paragraph at all, while the section it ends
+    still covers the body content above the control.
+
+    When `previous` already carries a ``w:sectPr`` of its own, its section ends
+    there and the one being moved would cover no content at all, so it is left
+    behind; the same reasoning applies when the deleted paragraph is the first
+    of the document (`previous` is ``None``). In both cases the body's own final
+    ``w:sectPr``, which is not attached to any paragraph, still describes the
+    document's layout.
     """
     properties = paragraph.find(_W_PPR)
     if properties is None:
@@ -562,7 +569,6 @@ def _carry_over_section_properties(paragraph) -> None:
     section = properties.find(_W_SECT_PR)
     if section is None:
         return
-    previous = next(iter(paragraph.itersiblings(_W_P, preceding=True)), None)
     if previous is None or previous.find(f"{_W_PPR}/{_W_SECT_PR}") is not None:
         return
     properties.remove(section)
@@ -571,6 +577,11 @@ def _carry_over_section_properties(paragraph) -> None:
 
 async def delete_paragraph(filename: str, paragraph_index: int) -> str:
     """Delete a paragraph from a document.
+
+    `paragraph_index` is read in the V2 index space -- the one ``find_text``
+    reports -- so the paragraph deleted is the paragraph the search tools
+    pointed at, content controls included; see
+    :func:`~word_document_server.utils.document_utils.indexed_paragraphs`.
 
     A paragraph that carries a section break hands its ``w:sectPr`` over to the
     paragraph before it rather than taking the section with it; see
@@ -594,15 +605,19 @@ async def delete_paragraph(filename: str, paragraph_index: int) -> str:
         async with get_file_lock(filename):
             pkg = DocxPackage.open(filename)
             body = body_element(pkg)
-            paragraphs = body_paragraphs(body)
+            paragraphs = indexed_paragraphs(body)
 
             # Validate paragraph index
             if paragraph_index < 0 or paragraph_index >= len(paragraphs):
                 return f"Invalid paragraph index. Document has {len(paragraphs)} paragraphs (0-{len(paragraphs)-1})."
 
             paragraph = paragraphs[paragraph_index]
-            _carry_over_section_properties(paragraph)
-            body.remove(paragraph)
+            previous = paragraphs[paragraph_index - 1] if paragraph_index else None
+            _carry_over_section_properties(paragraph, previous)
+            # Not necessarily a child of the body: a paragraph inside a block
+            # content control has a V2 index and must be removed from the
+            # control that actually holds it.
+            paragraph.getparent().remove(paragraph)
 
             pkg.save(filename)
         return f"Paragraph at index {paragraph_index} deleted successfully."

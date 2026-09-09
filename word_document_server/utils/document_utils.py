@@ -10,6 +10,7 @@ from docx.oxml import OxmlElement
 from lxml import etree
 
 from word_document_server.engine.errors import EngineError, PackageError
+from word_document_server.engine.find import _v2_index_map, iter_paragraphs
 from word_document_server.engine.find import find as engine_find
 from word_document_server.engine.format import PPR_ORDER
 from word_document_server.engine.package import DocxPackage
@@ -742,6 +743,27 @@ def body_paragraphs(body):
     :mod:`word_document_server.engine.find`.
     """
     return [child for child in body if child.tag == _W_P]
+
+
+def indexed_paragraphs(story_root):
+    """Return the paragraphs of `story_root` in V2 index order.
+
+    ``indexed_paragraphs(root)[i]`` is the paragraph that
+    :func:`~word_document_server.utils.extended_document_utils.find_text`
+    reports at ``paragraph_index`` ``i``: every ``w:p`` of the story in document
+    order, the content of a block ``w:sdt`` included, table cells and text boxes
+    excluded.  This is the space the ``paragraph_index`` argument of the public
+    tools addresses, and it is wider than :func:`body_paragraphs` -- a paragraph
+    sitting inside a content control has a body index of its own here but is not
+    a child of the body, so a caller that removes one must go through its actual
+    parent.
+
+    The membership test is :func:`~word_document_server.engine.find._v2_index_map`
+    itself, reused rather than restated so the reading tools and the writing
+    tools cannot drift into two different index spaces.  It numbers in ascending
+    order, so the insertion order of the map it returns is the index order.
+    """
+    return list(_v2_index_map(iter_paragraphs(story_root)))
 
 
 def block_children(body):
