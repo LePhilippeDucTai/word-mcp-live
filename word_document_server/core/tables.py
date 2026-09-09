@@ -114,41 +114,6 @@ def apply_table_style(table, has_header_row=False, border_style=None, shading=No
         return False
 
 
-def copy_table(source_table, target_doc):
-    """
-    Copy a table from one document to another.
-    
-    Args:
-        source_table: The table to copy
-        target_doc: The document to copy the table to
-        
-    Returns:
-        The new table in the target document
-    """
-    # Create a new table with the same dimensions
-    new_table = target_doc.add_table(rows=len(source_table.rows), cols=len(source_table.columns))
-    
-    # Try to apply the same style
-    try:
-        if source_table.style:
-            new_table.style = source_table.style
-    except:
-        # Fall back to default grid style
-        try:
-            new_table.style = 'Table Grid'
-        except:
-            pass
-    
-    # Copy cell contents
-    for i, row in enumerate(source_table.rows):
-        for j, cell in enumerate(row.cells):
-            for paragraph in cell.paragraphs:
-                if paragraph.text:
-                    new_table.cell(i, j).text = paragraph.text
-    
-    return new_table
-
-
 def set_cell_shading(cell, fill_color=None, pattern="clear", pattern_color="auto"):
     """
     Apply shading/filling to a table cell.

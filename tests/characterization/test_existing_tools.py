@@ -565,17 +565,6 @@ def test_add_table_of_contents_drops_ancillary_parts(combined_path):
     assert "word/comments.xml" in after.parts
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "merge_documents rebuilds the target in a blank Document(), copying "
-        "only paragraph text, a style name match, and a subset of direct run "
-        "formatting (bold/italic/underline/size) plus table cell text via "
-        "copy_table. comments.xml, tracked changes, footnotes/endnotes, "
-        "headers/footers, hyperlinks, bookmarks, fields and images are all "
-        "dropped. Already flagged DESTRUCTIVE in the tool docstring (J01-P1)."
-    ),
-)
 def test_merge_documents_drops_ancillary_parts(tmp_path, combined_path):
     before = snapshot(combined_path.read_bytes())
     assert "word/comments.xml" in before.parts  # sanity: the source has one
