@@ -1,16 +1,27 @@
 """Tests for the canonical snapshot and the structural comparison.
 
-Every document here is built in memory from raw OOXML: no binary is committed,
-and neither the module under test nor these tests import python-docx.
+Documents are built in memory: the focused tests write raw OOXML here, and the
+end-to-end coverage tests reuse :mod:`tests.fixtures.builders`, which builds the
+same packages every test of the suite uses.  No binary is committed, and the
+module under test never imports python-docx.
+
+The last two sections are the regression guard of the review finding on
+``assert_unchanged_except``: allowing one paragraph lifts the C14N digest of its
+whole story part, so anything the per-paragraph and per-table signatures fail to
+describe becomes invisible.  Each test there deletes a real carrier of meaning
+from a real fixture and requires the assertion to notice.
 """
 
 from __future__ import annotations
 
 import io
 import zipfile
+from functools import cache
 
 import pytest
+from lxml import etree
 
+from tests.fixtures.builders import build
 from tests.support.snapshot import (
     MAIN_STORY,
     assert_unchanged_except,
@@ -591,3 +602,232 @@ def test_table_cell_text_is_left_to_the_paragraph_check():
     assert_unchanged_except(before, after, paragraphs={0})
     with pytest.raises(AssertionError):
         assert_unchanged_except(before, after)
+
+
+# --------------------------------------------------------------------------
+# What a relaxed part still guards, element by element
+# --------------------------------------------------------------------------
+
+WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"
+
+
+def drawing(name: str = "Picture 1") -> str:
+    return (
+        f'<w:drawing><wp:inline xmlns:wp="{WP}">'
+        f'<wp:docPr id="1" name="{name}"/></wp:inline></w:drawing>'
+    )
+
+
+def inline_control(tag: str, text: str) -> str:
+    return (
+        f'<w:sdt><w:sdtPr><w:tag w:val="{tag}"/><w:id w:val="1"/></w:sdtPr>'
+        f"<w:sdtContent>{run(text)}</w:sdtContent></w:sdt>"
+    )
+
+
+def block_control(tag: str, paragraph: str) -> str:
+    return (
+        f'<w:sdt><w:sdtPr><w:tag w:val="{tag}"/><w:id w:val="2"/></w:sdtPr>'
+        f"<w:sdtContent>{paragraph}</w:sdtContent></w:sdt>"
+    )
+
+
+def test_run_children_record_non_textual_content():
+    body = para(f"<w:r>{drawing()}</w:r>", run("caption"))
+    sig = snapshot(make_docx(body)).paragraphs[(MAIN_STORY, 0)]
+    assert [name for name, _ in sig.runs[0].children] == ["drawing"]
+    assert sig.runs[1].children == ()
+
+
+def test_losing_a_drawing_is_reported_although_the_text_is_identical():
+    before = snapshot(
+        make_docx(para(f"<w:r>{drawing()}</w:r>", run("caption")) + para(run("b")))
+    )
+    after = snapshot(make_docx(para("<w:r/>", run("caption")) + para(run("B"))))
+    assert before.text() == ("caption", "b")
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs={1})
+    assert "document[0].runs" in str(caught.value)
+
+
+def test_a_swapped_drawing_is_reported_although_the_run_shape_is_the_same():
+    before = snapshot(make_docx(para(f"<w:r>{drawing('Picture 1')}</w:r>")))
+    after = snapshot(make_docx(para(f"<w:r>{drawing('Other picture')}</w:r>")))
+    delta = diff(before, after)
+    assert [item.field for item in delta.paragraphs_changed[0].changes] == ["runs"]
+
+
+def test_paragraph_properties_are_fingerprinted():
+    def document(spacing: str) -> bytes:
+        first = f'<w:p><w:pPr><w:spacing w:after="{spacing}"/></w:pPr>{run("a")}</w:p>'
+        return make_docx(para(run("editable")) + first)
+
+    before = snapshot(document("120"))
+    after = snapshot(document("240"))
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs={0})
+    assert "document[1].ppr" in str(caught.value)
+
+
+def test_deleted_paragraph_mark_survives_a_relaxed_revision_counter():
+    """``counters=`` relaxes a total; the paragraph signature keeps the detail."""
+    mark = '<w:del w:id="9" w:author="A" w:date="2024-01-01T00:00:00Z"/>'
+    before = snapshot(
+        make_docx(
+            para(run("editable"))
+            + f"<w:p><w:pPr><w:rPr>{mark}</w:rPr></w:pPr>{run('a')}</w:p>"
+        )
+    )
+    after = snapshot(make_docx(para(run("EDITABLE")) + para(run("a"))))
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(
+            before, after, paragraphs={0}, counters={"revisions"}
+        )
+    assert "document[1].ppr" in str(caught.value)
+
+
+def test_inline_content_control_properties_are_recorded():
+    before = snapshot(
+        make_docx(para(run("editable")) + para(inline_control("keep", "value")))
+    )
+    sig = before.paragraphs[(MAIN_STORY, 1)]
+    assert len(sig.inline_controls) == 1
+    assert 'w:val="keep"' in sig.inline_controls[0]
+
+    after = snapshot(make_docx(para(run("EDITABLE")) + para(run("value"))))
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs={0})
+    assert "document[1].inline_controls" in str(caught.value)
+
+
+def test_block_content_control_is_visible_from_the_paragraph_it_wraps():
+    wrapped = para(run("controlled"))
+    before = snapshot(make_docx(block_control("keep", wrapped) + para(run("free"))))
+    assert before.paragraphs[(MAIN_STORY, 0)].enclosing_controls != ()
+    assert before.paragraphs[(MAIN_STORY, 1)].enclosing_controls == ()
+
+    after = snapshot(make_docx(wrapped + para(run("FREE"))))
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs={1})
+    assert "document[0].enclosing_controls" in str(caught.value)
+
+
+def styled_table_document(tbl_pr: str, tc_pr: str) -> bytes:
+    body = (
+        f"<w:tbl>{tbl_pr}"
+        '<w:tblGrid><w:gridCol w:w="100"/></w:tblGrid>'
+        f"<w:tr><w:tc>{tc_pr}{para(run('cell'))}</w:tc></w:tr></w:tbl>"
+    )
+    return make_docx(para(run("editable")) + body)
+
+
+def test_table_properties_are_guarded_even_when_a_paragraph_is_allowed():
+    styled = '<w:tblPr><w:tblStyle w:val="Grid"/><w:tblW w:w="5000" w:type="dxa"/></w:tblPr>'
+    shaded = '<w:tcPr><w:shd w:val="clear" w:fill="EEEEEE"/></w:tcPr>'
+    before = snapshot(styled_table_document(styled, shaded))
+    assert 'w:val="Grid"' in before.tables[(MAIN_STORY, 0)].tbl_pr
+
+    after = snapshot(styled_table_document("", ""))
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs={0, 1})
+    message = str(caught.value)
+    assert "table document[0].tbl_pr" in message
+    assert "table document[0].cell_properties" in message
+
+
+# --------------------------------------------------------------------------
+# The same guarantee, measured on the shared fixtures
+# --------------------------------------------------------------------------
+
+
+@cache
+def combined_docx() -> bytes:
+    """The ``combined`` fixture, built once for this module."""
+    return build("combined")
+
+
+def rewrite_document(blob: bytes, mutate) -> bytes:
+    """Apply `mutate` to the parsed ``word/document.xml`` and rezip the package."""
+    parts: dict[str, bytes] = {}
+    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        for info in archive.infolist():
+            if not info.is_dir():
+                parts[info.filename] = archive.read(info)
+    root = etree.fromstring(parts["word/document.xml"])
+    mutate(root)
+    parts["word/document.xml"] = etree.tostring(
+        root.getroottree(), xml_declaration=True, encoding="UTF-8", standalone=True
+    )
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(parts):
+            archive.writestr(name, parts[name])
+    return buffer.getvalue()
+
+
+def strip_elements(blob: bytes, localname: str) -> tuple[bytes, int]:
+    """Delete every ``w:<localname>`` of the main part; return the bytes and count."""
+    removed = 0
+
+    def mutate(root) -> None:
+        nonlocal removed
+        for element in list(root.iter(f"{{{W}}}{localname}")):
+            element.getparent().remove(element)
+            removed += 1
+
+    return rewrite_document(blob, mutate), removed
+
+
+@pytest.mark.parametrize(
+    ("localname", "expected_removals", "expected_field"),
+    [
+        ("drawing", 2, "runs"),  # inline images
+        ("tblPr", 2, "tbl_pr"),  # table style, borders, width
+        ("sdtPr", 3, "enclosing_controls"),  # content control identity
+    ],
+)
+def test_deleting_a_carrier_of_meaning_is_reported_on_a_relaxed_part(
+    localname: str, expected_removals: int, expected_field: str
+):
+    """Allowing one paragraph must not blind the assertion to the rest of the part."""
+    original = combined_docx()
+    mutated, removed = strip_elements(original, localname)
+    assert removed == expected_removals
+
+    before, after = snapshot(original), snapshot(mutated)
+    assert "word/document.xml" in diff(before, after).parts_changed
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs=[0])
+    assert expected_field in str(caught.value)
+
+
+def test_deleting_an_inline_content_control_is_reported_on_a_relaxed_part():
+    mutated, _ = strip_elements(combined_docx(), "sdtPr")
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(
+            snapshot(combined_docx()), snapshot(mutated), paragraphs=[0]
+        )
+    assert "inline_controls" in str(caught.value)
+
+
+def test_paragraph_revisions_survive_a_relaxed_revision_counter_on_a_fixture():
+    """The secondary finding: ``counters=`` must not hide a per-paragraph loss."""
+
+    def mutate(root) -> None:
+        for properties in list(root.iter(f"{{{W}}}pPr")):
+            for change in list(properties.iter(f"{{{W}}}pPrChange")):
+                change.getparent().remove(change)
+            mark = properties.find(f"{{{W}}}rPr")
+            if mark is not None:
+                for deletion in list(mark.findall(f"{{{W}}}del")):
+                    mark.remove(deletion)
+
+    original = combined_docx()
+    before = snapshot(original)
+    after = snapshot(rewrite_document(original, mutate))
+    assert before.counters["revisions"] > after.counters["revisions"]
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(
+            before, after, paragraphs=[0], counters={"revisions"}
+        )
+    assert ".ppr" in str(caught.value)

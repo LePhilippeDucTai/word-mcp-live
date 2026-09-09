@@ -52,6 +52,18 @@ namespace prefixes, which therefore stay significant.  This is deliberate: a
 serialiser that reindents a part it was not asked to touch has changed it.  A
 caller that knowingly accepts such a rewrite lists the part in
 ``assert_unchanged_except(..., parts=...)``.
+
+Element-by-element coverage
+---------------------------
+Allowing one paragraph lifts the C14N digest of its whole story part, so the
+per-paragraph and per-table signatures are the *only* guard left over the rest
+of that part.  They must therefore describe every carrier of meaning, not just
+text: ``w:pPr`` and ``w:rPr`` (formatting, numbering, paragraph-mark revision),
+the non-textual children of a run (``w:drawing``, ``w:object``, ``w:pict``,
+``w:fldChar``, ``w:br``, ...), ``w:tblPr``/``w:trPr``/``w:tcPr`` (table style,
+borders, widths) and ``w:sdtPr`` (identity of a content control, whether the
+control wraps the paragraph or sits inside it).  Anything left out of these
+signatures is a loss the harness cannot see.
 """
 
 from __future__ import annotations
@@ -129,9 +141,12 @@ _DEL = _w("del")
 _DEL_TEXT = _w("delText")
 _INSTR_TEXT = _w("instrText")
 _DEL_INSTR_TEXT = _w("delInstrText")
+_SDT = _w("sdt")
 _SDT_PR = _w("sdtPr")
 _TBL = _w("tbl")
+_TBL_PR = _w("tblPr")
 _TR = _w("tr")
+_TR_PR = _w("trPr")
 _TC = _w("tc")
 _TC_PR = _w("tcPr")
 _TBL_GRID = _w("tblGrid")
@@ -158,6 +173,11 @@ _HIDDEN_TAGS = frozenset({_DEL, _INSTR_TEXT, _DEL_INSTR_TEXT})
 _VISIBLE_SKIP = _PROPERTY_TAGS | _HIDDEN_TAGS
 _VISIBLE_TEXT_TAGS = frozenset({_T})
 _DELETED_TEXT_TAGS = frozenset({_T, _DEL_TEXT})
+
+#: Run children already represented by :attr:`RunSignature.text` or by
+#: :attr:`ParagraphSignature.field_instructions`; every other child is content
+#: in its own right and is recorded in :attr:`RunSignature.children`.
+_TEXT_CARRYING_TAGS = frozenset({_T, _DEL_TEXT, _INSTR_TEXT, _DEL_INSTR_TEXT})
 
 #: Elements whose presence and identity a paragraph signature must preserve.
 _MARKER_TAGS: dict[str, str] = {
@@ -219,10 +239,16 @@ class PartSignature:
 
 @dataclass(frozen=True)
 class RunSignature:
-    """One ``w:r``: its text and its canonical run properties."""
+    """One ``w:r``: its text, its run properties and its non-textual content."""
 
     text: str
     rpr: str  # exclusive C14N of w:rPr, "" when the run has none
+    #: ``(local name, digest)`` of every child that is not text-carrying, in
+    #: document order: images, embedded objects, note references, field
+    #: characters, breaks, tabs, symbols...  The digest is of the child's
+    #: exclusive C14N, so that losing a ``w:drawing`` *and* silently swapping
+    #: the image it points at are both visible.
+    children: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -238,6 +264,18 @@ class ParagraphSignature:
     markers: tuple[tuple[str, str], ...]
     field_instructions: tuple[str, ...]
     num_pr: tuple[str, str] | None
+    #: Exclusive C14N of ``w:pPr``, "" when the paragraph has none.  Covers
+    #: spacing, justification, borders, ``w:pPrChange`` and the paragraph-mark
+    #: run properties -- including the ``w:rPr/w:del`` that marks the paragraph
+    #: mark itself as deleted.
+    ppr: str = ""
+    #: Exclusive C14N of the ``w:sdtPr`` of each content control *inside* the
+    #: paragraph, in document order.
+    inline_controls: tuple[str, ...] = ()
+    #: Same, for each ``w:sdt`` the paragraph is nested in, outermost first.
+    #: A block-level control that loses its properties -- or its wrapping --
+    #: changes the signature of every paragraph it contains.
+    enclosing_controls: tuple[str, ...] = ()
 
     @property
     def key(self) -> tuple[str, int]:
@@ -258,6 +296,14 @@ class TableSignature:
     grid_cols: int
     grid: tuple[tuple[tuple[int, str], ...], ...]  # per row, per cell: span, vMerge
     cells: tuple[str, ...]
+    #: Exclusive C14N of ``w:tblPr``: table style, borders, width, layout.
+    tbl_pr: str = ""
+    #: Exclusive C14N of each ``w:trPr``, in row order ("" when a row has none).
+    row_properties: tuple[str, ...] = ()
+    #: Exclusive C14N of each ``w:tcPr``, in cell order ("" when a cell has
+    #: none).  ``grid`` only extracts span and vertical merge from it; the
+    #: digest keeps shading, borders and widths observable too.
+    cell_properties: tuple[str, ...] = ()
 
     @property
     def key(self) -> tuple[str, int]:
@@ -540,13 +586,40 @@ def _visible_text(node: etree._Element) -> str:
     return _text_of(node, _VISIBLE_TEXT_TAGS, _VISIBLE_SKIP)
 
 
+def _fragment_digest(element: etree._Element) -> str:
+    """Short, stable digest of an element's exclusive C14N."""
+    return _sha(_canonical_fragment(element).encode("utf-8"))[:16]
+
+
+def _run_children(run: etree._Element) -> tuple[tuple[str, str], ...]:
+    """Non-textual children of a run: what ``text`` and ``rpr`` cannot show."""
+    return tuple(
+        (etree.QName(child).localname, _fragment_digest(child))
+        for child in run
+        if isinstance(child.tag, str)
+        and child.tag != _RPR
+        and child.tag not in _TEXT_CARRYING_TAGS
+    )
+
+
 def _run_signature(
     run: etree._Element, text_tags: Collection[str], skip: Collection[str]
 ) -> RunSignature:
     return RunSignature(
         text=_text_of(run, text_tags, skip),
         rpr=_canonical_fragment(run.find(_RPR)),
+        children=_run_children(run),
     )
+
+
+def _enclosing_controls(paragraph: etree._Element) -> tuple[str, ...]:
+    """``w:sdtPr`` of every ``w:sdt`` the paragraph is nested in, outermost first."""
+    controls = [
+        _canonical_fragment(node.find(_SDT_PR))
+        for node in paragraph.iterancestors(_SDT)
+    ]
+    controls.reverse()
+    return tuple(controls)
 
 
 def _bookmark_names(root: etree._Element) -> dict[str, str]:
@@ -592,6 +665,7 @@ def _paragraph_signature(
     deleted_runs: list[RunSignature] = []
     markers: list[tuple[str, str]] = []
     instructions: list[str] = []
+    inline_controls: list[str] = []
 
     for element in _iter_elements(paragraph, _PROPERTY_TAGS):
         tag = element.tag
@@ -603,6 +677,8 @@ def _paragraph_signature(
             instructions.append(element.text or "")
         elif tag == _FLD_SIMPLE:
             instructions.append(element.get(_INSTR) or "")
+        elif tag == _SDT:
+            inline_controls.append(_canonical_fragment(element.find(_SDT_PR)))
         elif tag == _R:
             if _is_hidden_run(element, paragraph):
                 deleted_runs.append(
@@ -621,6 +697,9 @@ def _paragraph_signature(
         markers=tuple(markers),
         field_instructions=tuple(instructions),
         num_pr=num_pr,
+        ppr=_canonical_fragment(properties),
+        inline_controls=tuple(inline_controls),
+        enclosing_controls=_enclosing_controls(paragraph),
     )
 
 
@@ -639,11 +718,14 @@ def _table_signature(story: str, index: int, table: etree._Element) -> TableSign
     grid_cols = 0 if grid_element is None else len(grid_element.findall(_GRID_COL))
     grid: list[tuple[tuple[int, str], ...]] = []
     cells: list[str] = []
+    row_properties: list[str] = []
+    cell_properties: list[str] = []
     rows = 0
     for row in table:
         if row.tag != _TR:
             continue
         rows += 1
+        row_properties.append(_canonical_fragment(row.find(_TR_PR)))
         row_grid: list[tuple[int, str]] = []
         for cell in row:
             if cell.tag != _TC:
@@ -651,6 +733,7 @@ def _table_signature(story: str, index: int, table: etree._Element) -> TableSign
             span = 1
             merge = ""
             properties = cell.find(_TC_PR)
+            cell_properties.append(_canonical_fragment(properties))
             if properties is not None:
                 span_element = properties.find(_GRID_SPAN)
                 if span_element is not None:
@@ -675,6 +758,9 @@ def _table_signature(story: str, index: int, table: etree._Element) -> TableSign
         grid_cols=grid_cols,
         grid=tuple(grid),
         cells=tuple(cells),
+        tbl_pr=_canonical_fragment(table.find(_TBL_PR)),
+        row_properties=tuple(row_properties),
+        cell_properties=tuple(cell_properties),
     )
 
 
@@ -800,8 +886,19 @@ _PARAGRAPH_FIELDS = (
     "markers",
     "field_instructions",
     "num_pr",
+    "ppr",
+    "inline_controls",
+    "enclosing_controls",
 )
-_TABLE_FIELDS = ("rows", "grid_cols", "grid", "cells")
+_TABLE_FIELDS = (
+    "rows",
+    "grid_cols",
+    "grid",
+    "cells",
+    "tbl_pr",
+    "row_properties",
+    "cell_properties",
+)
 
 
 def _compare_fields(
@@ -901,12 +998,21 @@ def assert_unchanged_except(
     index space; a bare int means the main story.  Allowing a paragraph also
     allows the digest of its story part -- a paragraph cannot change without
     its part changing.  ``parts`` lists part names whose digest, relationships
-    and added/removed state are allowed to change.  ``counters`` lists counter
-    names allowed to change.
+    and added/removed state are allowed to change.
+
+    ``counters`` relaxes a counter **globally**, for the whole package, not
+    paragraph by paragraph: ``counters={"revisions"}`` accepts any revision
+    count anywhere, including in paragraphs no caller declared.  It is the
+    coarsest lever here and should be the last one reached for; what still
+    guards those paragraphs is their own signature (``ppr`` carries
+    ``w:pPrChange`` and the deleted paragraph mark, ``runs`` carries
+    ``w:rPrChange``, ``deleted_runs`` carries ``w:del``), so a relaxed counter
+    hides the *total*, never an individual paragraph.
 
     Table cell text is not re-checked here: cell paragraphs already live in the
-    paragraph index space.  Table *structure* (row count, grid, spans, vertical
-    merges) must be identical unless its story part is listed in ``parts``.
+    paragraph index space.  Everything else about a table -- row count, grid,
+    spans, vertical merges, ``w:tblPr``, ``w:trPr``, ``w:tcPr`` -- must be
+    identical unless its story part is listed in ``parts``.
     """
     allowed_paragraphs = _normalise_paragraph_keys(paragraphs)
     allowed_parts = set(parts)
