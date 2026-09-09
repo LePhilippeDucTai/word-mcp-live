@@ -13,7 +13,14 @@ from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn, nsdecls
 from docx.oxml import parse_xml
+from lxml import etree
 
+from word_document_server.engine.errors import InvalidText, UnsupportedRange
+from word_document_server.engine.ids import next_annotation_id
+from word_document_server.engine.package import DocxPackage
+from word_document_server.engine.ranges import insert_text, replace_range
+from word_document_server.engine.textmodel import visible_text
+from word_document_server.utils.document_utils import body_element, body_paragraphs
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension, get_file_lock
 
 
@@ -109,6 +116,44 @@ async def set_page_layout(
         return json.dumps({"error": str(e)})
 
 
+def _write_story_text(container, text: str, alignment: str, replace_content: bool, kind: str):
+    """Put `text` in a header or footer; return a refusal message or ``None``.
+
+    With `replace_content` the visible text of the first paragraph is rewritten
+    in place through the engine, so everything the paragraph carries beside that
+    text -- an image, a page-number field, a bookmark, a run style -- stays
+    exactly where it was. The previous implementation called ``p.clear()`` on
+    every paragraph of the story first, which threw all of that away.
+
+    A range that would swallow a field or an image is refused by the engine
+    rather than guessed at, and the refusal is reported: rewriting "Page 1 of 3"
+    as plain text would silently turn two live fields into a frozen string.
+    """
+    if replace_content:
+        paragraph = container.paragraphs[0] if container.paragraphs else container.add_paragraph()
+        current = visible_text(paragraph._p)
+        try:
+            if current:
+                replace_range(paragraph._p, 0, len(current), text)
+            else:
+                insert_text(paragraph._p, 0, text)
+        except (InvalidText, UnsupportedRange) as exc:
+            return (
+                f"Cannot rewrite the {kind} text: {exc}. Pass replace_content=False "
+                f"to add the text as a new {kind} paragraph instead."
+            )
+    else:
+        paragraph = container.add_paragraph()
+        try:
+            insert_text(paragraph._p, 0, text)
+        except InvalidText as exc:
+            paragraph._p.getparent().remove(paragraph._p)
+            return f"Cannot write the {kind} text: {exc}."
+
+    paragraph.alignment = _ALIGN_MAP.get(alignment.lower(), WD_ALIGN_PARAGRAPH.CENTER)
+    return None
+
+
 async def add_header_footer(
     filename: str,
     section_index: int = 0,
@@ -116,6 +161,7 @@ async def add_header_footer(
     footer_text: str = None,
     header_alignment: str = "center",
     footer_alignment: str = "center",
+    replace_content: bool = True,
 ) -> str:
     """Add header and/or footer text to a document section.
 
@@ -126,6 +172,11 @@ async def add_header_footer(
         footer_text: Text to put in the footer. None = don't change.
         header_alignment: "left", "center", "right", "justify".
         footer_alignment: "left", "center", "right", "justify".
+        replace_content: True (the default) rewrites the visible text of the
+            first paragraph of the header or footer, keeping everything else it
+            holds; the call is refused when that text cannot be rewritten
+            without destroying a field or an image. False leaves every existing
+            paragraph alone and adds the text as a new paragraph instead.
     """
     filename = ensure_docx_extension(filename)
     if not os.path.exists(filename):
@@ -144,26 +195,18 @@ async def add_header_footer(
             section = doc.sections[section_index]
             added = []
 
-            if header_text is not None:
-                header = section.header
-                header.is_linked_to_previous = False
-                # Clear existing and add new
-                for p in header.paragraphs:
-                    p.clear()
-                p = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
-                p.text = header_text
-                p.alignment = _ALIGN_MAP.get(header_alignment.lower(), WD_ALIGN_PARAGRAPH.CENTER)
-                added.append("header")
-
-            if footer_text is not None:
-                footer = section.footer
-                footer.is_linked_to_previous = False
-                for p in footer.paragraphs:
-                    p.clear()
-                p = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
-                p.text = footer_text
-                p.alignment = _ALIGN_MAP.get(footer_alignment.lower(), WD_ALIGN_PARAGRAPH.CENTER)
-                added.append("footer")
+            for kind, text, alignment in (
+                ("header", header_text, header_alignment),
+                ("footer", footer_text, footer_alignment),
+            ):
+                if text is None:
+                    continue
+                container = section.header if kind == "header" else section.footer
+                container.is_linked_to_previous = False
+                refusal = _write_story_text(container, text, alignment, replace_content, kind)
+                if refusal is not None:
+                    return json.dumps({"error": refusal})
+                added.append(kind)
 
             doc.save(filename)
         return json.dumps({"success": True, "added": added, "section": section_index})
@@ -395,6 +438,14 @@ async def add_bookmark(
 ) -> str:
     """Add a named bookmark at a paragraph.
 
+    The id comes from :func:`~word_document_server.engine.ids.next_annotation_id`,
+    which reads the whole package: a bookmark, a revision and a comment anchor
+    share one id space, and a random number in ``1000..99999`` collided with it
+    often enough to make the older of the two bookmarks unreachable. The markers
+    go after ``w:pPr`` -- it must stay the first child of a paragraph -- and the
+    name is set as an attribute, so a quote or an ampersand in it can no longer
+    produce malformed XML.
+
     Args:
         filename: Path to the Word document.
         paragraph_index: Paragraph to bookmark (0-based).
@@ -410,28 +461,26 @@ async def add_bookmark(
 
     try:
         async with get_file_lock(filename):
-            doc = Document(filename)
-            if paragraph_index >= len(doc.paragraphs):
+            pkg = DocxPackage.open(filename)
+            body = body_element(pkg)
+            paragraphs = body_paragraphs(body)
+            if paragraph_index >= len(paragraphs):
                 return f"Paragraph {paragraph_index} does not exist."
 
-            para = doc.paragraphs[paragraph_index]
+            para = paragraphs[paragraph_index]
+            bm_id = str(next_annotation_id(pkg))
 
-            # Generate a unique bookmark ID
-            import random
-            bm_id = str(random.randint(1000, 99999))
+            bm_start = etree.SubElement(para, qn("w:bookmarkStart"))
+            bm_start.set(qn("w:id"), bm_id)
+            bm_start.set(qn("w:name"), bookmark_name)
+            bm_end = etree.SubElement(para, qn("w:bookmarkEnd"))
+            bm_end.set(qn("w:id"), bm_id)
 
-            # Insert bookmarkStart before paragraph content
-            bm_start = parse_xml(
-                f'<w:bookmarkStart {nsdecls("w")} w:id="{bm_id}" w:name="{bookmark_name}"/>'
-            )
-            bm_end = parse_xml(
-                f'<w:bookmarkEnd {nsdecls("w")} w:id="{bm_id}"/>'
-            )
+            # w:pPr is the paragraph's first child or it is nowhere; the start
+            # marker goes right after it, and the end marker stays last.
+            para.insert(1 if para.find(qn("w:pPr")) is not None else 0, bm_start)
 
-            para._p.insert(0, bm_start)
-            para._p.append(bm_end)
-
-            doc.save(filename)
+            pkg.save(filename)
         return json.dumps({
             "success": True,
             "bookmark_name": bookmark_name,

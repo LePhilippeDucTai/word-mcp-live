@@ -5,16 +5,79 @@ These tools add various types of content to Word documents,
 including headings, paragraphs, tables, images, and page breaks.
 """
 import os
+import re
 from typing import List, Optional, Dict, Any
 from docx import Document
+from docx.opc.constants import RELATIONSHIP_TYPE as RT
+from docx.oxml.ns import nsdecls, qn
 from docx.shared import Inches, Pt, RGBColor
+from lxml import etree
 
 from word_document_server.utils.document_utils import get_effective_text
 
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension, get_file_lock
 from word_document_server.utils.document_utils import find_and_replace_text, replace_text_everywhere, insert_header_near_text, insert_numbered_list_near_text, insert_line_or_paragraph_near_text, replace_paragraph_block_below_header, replace_block_between_manual_anchors
+from word_document_server.utils.document_utils import (
+    BLOCK_TAGS,
+    attach_ppr_child,
+    body_element,
+    body_paragraphs,
+    paragraph_style_label,
+    paragraph_style_names,
+    styles_root,
+)
 from word_document_server.engine.package import DocxPackage
+from word_document_server.engine.textmodel import visible_text
 from word_document_server.core.styles import ensure_heading_style, ensure_table_style
+
+
+_W_P = qn("w:p")
+_W_PPR = qn("w:pPr")
+_W_SECT_PR = qn("w:sectPr")
+
+#: ``w:pStyle`` values -- or style names -- that name a heading and its level.
+#: Word stores the built-in headings under the name ``"heading 1"`` and the id
+#: ``"Heading1"``; both spellings, and the ``"Heading 1"`` a caller uses, match.
+_HEADING_STYLE = re.compile(r"heading\s*([1-9])\s*$", re.IGNORECASE)
+
+#: Gallery name Word looks for to recognise a content control as a table of contents.
+_TOC_GALLERY = "Table of Contents"
+
+_SETTINGS_PARTNAME = "/word/settings.xml"
+_SETTINGS_CONTENT_TYPE = (
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"
+)
+
+#: Local names of the ``w:settings`` children that follow ``w:updateFields`` in
+#: the schema sequence (ECMA-376 §17.15.1.78). ``w:settings`` is an
+#: ``xsd:sequence``: a ``w:updateFields`` appended at the end of a part that
+#: already holds a ``w:compat`` or a ``w:rsids`` is out of order, and Word
+#: offers to repair the document instead of refreshing the field.
+_SETTINGS_AFTER_UPDATE_FIELDS = frozenset(
+    {
+        "hdrShapeDefaults",
+        "footnotePr",
+        "endnotePr",
+        "compat",
+        "docVars",
+        "rsids",
+        "mathPr",
+        "attachedSchema",
+        "themeFontLang",
+        "clrSchemeMapping",
+        "doNotIncludeSubdocsInStats",
+        "doNotAutoCompressPictures",
+        "forceUpgrade",
+        "captions",
+        "readModeInkLockDown",
+        "smartTagType",
+        "schemaLibrary",
+        "shapeDefaults",
+        "doNotEmbedSmartTags",
+        "decimalSymbol",
+        "listSeparator",
+    }
+)
 
 
 async def add_heading(filename: str, text: str, level: int = 1,
@@ -311,128 +374,237 @@ async def add_page_break(filename: str) -> str:
         return f"Failed to add page break: {str(e)}"
 
 
+def _heading_level(label: Optional[str]) -> Optional[int]:
+    """Heading level a paragraph style label names, or ``None``."""
+    if not label:
+        return None
+    found = _HEADING_STYLE.match(label.strip())
+    return int(found.group(1)) if found else None
+
+
+def _sub(parent, tag: str, attrs: Optional[Dict[str, str]] = None, text: Optional[str] = None):
+    """Create a child element of `parent`, in the tree so prefixes are reused."""
+    element = etree.SubElement(parent, qn(tag))
+    for name, value in (attrs or {}).items():
+        element.set(qn(name), value)
+    if text is not None:
+        element.text = text
+    return element
+
+
+def _build_table_of_contents(body, title, max_level, entries, style_ids):
+    """Build the table-of-contents content control at the end of `body`, and return it.
+
+    The result is what Word itself writes: a ``w:sdt`` of the "Table of
+    Contents" gallery holding a ``TOC`` complex field. The field's cached result
+    -- the entries between ``separate`` and ``end`` -- is what a reader sees
+    until the field is refreshed, which is why it is filled with the headings
+    found rather than left empty.
+    """
+    control = etree.SubElement(body, qn("w:sdt"))
+    properties = _sub(control, "w:sdtPr")
+    gallery = _sub(properties, "w:docPartObj")
+    _sub(gallery, "w:docPartGallery", {"w:val": _TOC_GALLERY})
+    _sub(gallery, "w:docPartUnique")
+    content = _sub(control, "w:sdtContent")
+
+    if title:
+        paragraph = _sub(content, "w:p")
+        heading_style = next(
+            (candidate for candidate in ("TOCHeading", "Heading1") if candidate in style_ids),
+            None,
+        )
+        if heading_style:
+            _sub(_sub(paragraph, "w:pPr"), "w:pStyle", {"w:val": heading_style})
+        _sub(_sub(paragraph, "w:r"), "w:t", {"xml:space": "preserve"}, title)
+
+    written = []
+    for level, text in entries:
+        paragraph = _sub(content, "w:p")
+        entry_style = f"TOC{level}"
+        if entry_style in style_ids:
+            _sub(_sub(paragraph, "w:pPr"), "w:pStyle", {"w:val": entry_style})
+        written.append((paragraph, text))
+
+    first = written[0][0]
+    _sub(_sub(first, "w:r"), "w:fldChar", {"w:fldCharType": "begin"})
+    _sub(
+        _sub(first, "w:r"),
+        "w:instrText",
+        {"xml:space": "preserve"},
+        f' TOC \\o "1-{max_level}" \\h \\z \\u ',
+    )
+    _sub(_sub(first, "w:r"), "w:fldChar", {"w:fldCharType": "separate"})
+    for paragraph, text in written:
+        _sub(_sub(paragraph, "w:r"), "w:t", {"xml:space": "preserve"}, text)
+    _sub(_sub(written[-1][0], "w:r"), "w:fldChar", {"w:fldCharType": "end"})
+    return control
+
+
+def _place_table_of_contents(body, control, style_names) -> None:
+    """Move `control` to the head of the body, or just after its first heading."""
+    blocks = [child for child in body if child.tag in BLOCK_TAGS and child is not control]
+    if not blocks:
+        body.insert(0, control)
+        return
+    first = blocks[0]
+    if first.tag == _W_P and _heading_level(paragraph_style_label(first, style_names)) is not None:
+        first.addnext(control)
+    else:
+        first.addprevious(control)
+
+
+def _mark_fields_for_update(pkg) -> None:
+    """Ask Word to refresh every field of the document when it opens it.
+
+    A ``TOC`` field only ever shows its cached result until something updates
+    it; ``w:updateFields`` in ``settings.xml`` is how a producer that cannot
+    paginate -- which is every producer that is not Word -- gets real page
+    numbers in front of the reader.
+
+    ``ensure_part`` is idempotent in both directions: a document that already
+    has a settings part keeps it untouched, and one that has none gets an empty
+    ``w:settings`` related from the document part.
+    """
+    root = pkg.ensure_part(
+        _SETTINGS_PARTNAME,
+        _SETTINGS_CONTENT_TYPE,
+        RT.SETTINGS,
+        f'<w:settings {nsdecls("w")}/>',
+    )
+
+    element = root.find(qn("w:updateFields"))
+    if element is None:
+        element = etree.SubElement(root, qn("w:updateFields"))
+        for index, child in enumerate(root):
+            if child is element or not isinstance(child.tag, str):
+                continue
+            if etree.QName(child).localname in _SETTINGS_AFTER_UPDATE_FIELDS:
+                root.insert(index, element)
+                break
+    element.set(qn("w:val"), "true")
+
+
 async def add_table_of_contents(filename: str, title: str = "Table of Contents", max_level: int = 3) -> str:
     """Add a table of contents to a Word document based on heading styles.
-    
+
+    The table of contents is inserted as a real Word field -- a ``w:sdt`` of the
+    "Table of Contents" gallery wrapping a ``TOC \\o "1-N" \\h \\z \\u``
+    complex field -- at the head of the body, or just after the document's
+    first heading. Nothing else in the document is touched: the tool used to
+    rebuild the whole file inside a blank ``Document()``, which kept paragraph
+    text and style names and dropped comments, footnotes, headers, images,
+    hyperlinks, bookmarks, fields, tracked changes and table merges.
+
     Args:
         filename: Path to the Word document
         title: Optional title for the table of contents
         max_level: Maximum heading level to include (1-9)
     """
     filename = ensure_docx_extension(filename)
-    
+
     if not os.path.exists(filename):
         return f"Document {filename} does not exist"
-    
+
     # Check if file is writeable
     is_writeable, error_message = check_file_writeable(filename)
     if not is_writeable:
         return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
+
     try:
         # Ensure max_level is within valid range
-        max_level = max(1, min(max_level, 9))
+        max_level = max(1, min(int(max_level), 9))
 
         async with get_file_lock(filename):
-            doc = Document(filename)
+            pkg = DocxPackage.open(filename)
+            body = body_element(pkg)
+            style_names = paragraph_style_names(styles_root(pkg))
 
-            # Collect headings and their positions
-            headings = []
-            for i, paragraph in enumerate(doc.paragraphs):
-                # Check if paragraph style is a heading
-                if paragraph.style and paragraph.style.name.startswith('Heading '):
-                    try:
-                        # Extract heading level from style name
-                        level = int(paragraph.style.name.split(' ')[1])
-                        if level <= max_level:
-                            headings.append({
-                                'level': level,
-                                'text': get_effective_text(paragraph),
-                                'position': i
-                            })
-                    except (ValueError, IndexError):
-                        # Skip if heading level can't be determined
-                        pass
+            entries = []
+            for element in body_paragraphs(body):
+                level = _heading_level(paragraph_style_label(element, style_names))
+                if level is not None and level <= max_level:
+                    entries.append((level, visible_text(element)))
 
-            if not headings:
+            if not entries:
                 return f"No headings found in document {filename}. Table of contents not created."
 
-            # Create a new document with the TOC
-            toc_doc = Document()
+            control = _build_table_of_contents(
+                body, title, max_level, entries, set(style_names)
+            )
+            _place_table_of_contents(body, control, style_names)
+            _mark_fields_for_update(pkg)
+            pkg.save(filename)
 
-            # Add title
-            if title:
-                toc_doc.add_heading(title, level=1)
-
-            # Add TOC entries
-            for heading in headings:
-                # Indent based on level (using tab characters)
-                indent = '    ' * (heading['level'] - 1)
-                toc_doc.add_paragraph(f"{indent}{heading['text']}")
-
-            # Add page break
-            toc_doc.add_page_break()
-
-            # Get content from original document
-            for paragraph in doc.paragraphs:
-                p = toc_doc.add_paragraph(paragraph.text)
-                # Copy style if possible
-                try:
-                    if paragraph.style:
-                        p.style = paragraph.style.name
-                except:
-                    pass
-
-            # Copy tables
-            for table in doc.tables:
-                # Create a new table with the same dimensions
-                new_table = toc_doc.add_table(rows=len(table.rows), cols=len(table.columns))
-                # Copy cell contents
-                for i, row in enumerate(table.rows):
-                    for j, cell in enumerate(row.cells):
-                        for paragraph in cell.paragraphs:
-                            new_table.cell(i, j).text = paragraph.text
-
-            # Save the new document with TOC
-            toc_doc.save(filename)
-
-        return f"Table of contents with {len(headings)} entries added to {filename}"
+        return f"Table of contents with {len(entries)} entries added to {filename}"
     except Exception as e:
         return f"Failed to add table of contents: {str(e)}"
 
 
+def _carry_over_section_properties(paragraph) -> None:
+    """Move a paragraph's ``w:sectPr`` onto the paragraph before it.
+
+    A ``w:sectPr`` inside a ``w:pPr`` describes the section that *ends* at that
+    paragraph -- it is the section break itself. Removing the paragraph without
+    moving it takes the page size, the margins, the columns and the header and
+    footer references of everything above it along, which is a page-layout loss
+    no caller asked for.
+
+    When the preceding paragraph already carries a ``w:sectPr`` of its own, its
+    section ends there and the one being moved would cover no content at all, so
+    it is left behind; the same reasoning applies when the deleted paragraph is
+    the first of the body. In both cases the body's own final ``w:sectPr``, which
+    is not attached to any paragraph, still describes the document's layout.
+    """
+    properties = paragraph.find(_W_PPR)
+    if properties is None:
+        return
+    section = properties.find(_W_SECT_PR)
+    if section is None:
+        return
+    previous = next(iter(paragraph.itersiblings(_W_P, preceding=True)), None)
+    if previous is None or previous.find(f"{_W_PPR}/{_W_SECT_PR}") is not None:
+        return
+    properties.remove(section)
+    attach_ppr_child(previous, section)
+
+
 async def delete_paragraph(filename: str, paragraph_index: int) -> str:
     """Delete a paragraph from a document.
-    
+
+    A paragraph that carries a section break hands its ``w:sectPr`` over to the
+    paragraph before it rather than taking the section with it; see
+    :func:`_carry_over_section_properties`.
+
     Args:
         filename: Path to the Word document
         paragraph_index: Index of the paragraph to delete (0-based)
     """
     filename = ensure_docx_extension(filename)
-    
+
     if not os.path.exists(filename):
         return f"Document {filename} does not exist"
-    
+
     # Check if file is writeable
     is_writeable, error_message = check_file_writeable(filename)
     if not is_writeable:
         return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
+
     try:
         async with get_file_lock(filename):
-            doc = Document(filename)
+            pkg = DocxPackage.open(filename)
+            body = body_element(pkg)
+            paragraphs = body_paragraphs(body)
 
             # Validate paragraph index
-            if paragraph_index < 0 or paragraph_index >= len(doc.paragraphs):
-                return f"Invalid paragraph index. Document has {len(doc.paragraphs)} paragraphs (0-{len(doc.paragraphs)-1})."
+            if paragraph_index < 0 or paragraph_index >= len(paragraphs):
+                return f"Invalid paragraph index. Document has {len(paragraphs)} paragraphs (0-{len(paragraphs)-1})."
 
-            # Delete the paragraph (by removing its content and setting it empty)
-            # Note: python-docx doesn't support true paragraph deletion, this is a workaround
-            paragraph = doc.paragraphs[paragraph_index]
-            p = paragraph._p
-            p.getparent().remove(p)
+            paragraph = paragraphs[paragraph_index]
+            _carry_over_section_properties(paragraph)
+            body.remove(paragraph)
 
-            doc.save(filename)
+            pkg.save(filename)
         return f"Paragraph at index {paragraph_index} deleted successfully."
     except Exception as e:
         return f"Failed to delete paragraph: {str(e)}"
