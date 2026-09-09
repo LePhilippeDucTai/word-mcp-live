@@ -21,11 +21,12 @@ body paragraphs, ``//w:p``, ``body//w:p``), plus the even wider snapshot
 space (``PARAGRAPH_INDEX_SPACE`` in ``tests/support/snapshot.py``), so an
 index is only meaningful once its space is named. ``_index_of`` resolves a
 paragraph in the *snapshot* space (what ``assert_unchanged_except`` wants);
-``_docx_index_of`` resolves one in python-docx's own body-paragraph space
-(what tools such as ``add_bookmark`` or ``delete_paragraph`` take as their
-``paragraph_index`` argument). The two coincide only before the fixture's
+``_docx_index_of`` resolves one in python-docx's own body-paragraph space;
+``_v2_index_of`` resolves one in the V2 space ``find_text`` reports, which is
+what ``delete_paragraph`` and ``add_bookmark`` take as their
+``paragraph_index`` argument. The three coincide only before the fixture's
 first table/content-control, which is where every target used below is
-picked from.
+picked from -- except where a test names the space it means explicitly.
 """
 
 from __future__ import annotations
@@ -81,6 +82,7 @@ from word_document_server.tools.tracked_changes_tools import (
     track_insert,
     track_replace,
 )
+from word_document_server.utils.extended_document_utils import find_text
 
 pytestmark = pytest.mark.characterization
 
@@ -116,6 +118,21 @@ def _docx_index_of(path, text: str) -> int:
         f"found at indices {matches}"
     )
     return matches[0]
+
+
+def _v2_index_of(path, text: str) -> int:
+    """V2-space index of the paragraph with `text`, as ``find_text`` reports it."""
+    occurrences = find_text(str(path), text)["occurrences"]
+    matches = {
+        occurrence["paragraph_index"]
+        for occurrence in occurrences
+        if occurrence["story"] == "document"
+    }
+    assert len(matches) == 1, (
+        f"expected exactly one document paragraph with text {text!r} "
+        f"(V2 space), found at indices {sorted(matches)}"
+    )
+    return matches.pop()
 
 
 def _reindex_after_merge(
@@ -171,12 +188,13 @@ def test_search_and_replace_touches_only_the_matched_paragraph(combined_path):
 def test_delete_paragraph_removes_only_the_last_paragraph(combined_path):
     before = snapshot(combined_path.read_bytes())
     last_snapshot_idx = len(before.story_paragraphs("document")) - 1
-    # delete_paragraph indexes python-docx's own body-paragraph space; it
-    # coincides with the widest snapshot space at the very tail of the
-    # document, which is not nested inside any table or content control.
-    last_docx_idx = len(PDocument(str(combined_path)).paragraphs) - 1
+    # delete_paragraph indexes the V2 space -- the one find_text reports --
+    # which counts the paragraphs of a block content control but not those of a
+    # table cell, so it is neither the python-docx space nor the snapshot one.
+    last_text = before.story_paragraphs("document")[last_snapshot_idx].text
+    last_v2_idx = _v2_index_of(combined_path, last_text)
 
-    result = _run(delete_paragraph(str(combined_path), last_docx_idx))
+    result = _run(delete_paragraph(str(combined_path), last_v2_idx))
     assert "deleted successfully" in result
 
     after = snapshot(combined_path.read_bytes())
@@ -212,9 +230,9 @@ def test_add_bookmark_only_adds_markers_and_bumps_the_counter(combined_path):
     target_text = "First paragraph of the simple fixture."
     before = snapshot(combined_path.read_bytes())
     snapshot_idx = _index_of(before, target_text)
-    docx_idx = _docx_index_of(combined_path, target_text)
+    v2_idx = _v2_index_of(combined_path, target_text)
 
-    result = _run(add_bookmark(str(combined_path), docx_idx, "ProbeBookmark"))
+    result = _run(add_bookmark(str(combined_path), v2_idx, "ProbeBookmark"))
     assert json.loads(result)["success"] is True
 
     after = snapshot(combined_path.read_bytes())

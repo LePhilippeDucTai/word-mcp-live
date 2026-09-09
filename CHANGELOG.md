@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **`merge_documents`** — now merges into the **first source document** (its styles, numbering, sections, headers and footers are kept) instead of a blank `Document()`; the body of every other source is appended element by element (runs, images, hyperlinks, bookmarks, fields, tracked changes and tables carried over). A source carrying comments, footnotes or endnotes is refused (`Failed to merge documents: …`, target left untouched). The headers and footers of the appended sources are ignored and listed under `Warnings:` after the success message.
+- **`add_header_footer`** — now refuses to rewrite a header or footer paragraph that holds a field or an image, rather than clearing it; the refusal points at the new optional `replace_content=False`, which leaves every existing paragraph alone and adds the text as a new paragraph instead.
 
 ### Fixed
 - **`replace_block_between_manual_anchors`** — an `end_anchor_text` matching no paragraph is now reported (`End anchor 'X' not found.`) and nothing is written; it previously deleted everything up to the end of the document.

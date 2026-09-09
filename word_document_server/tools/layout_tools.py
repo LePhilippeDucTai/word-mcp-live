@@ -20,7 +20,7 @@ from word_document_server.engine.ids import next_annotation_id
 from word_document_server.engine.package import DocxPackage
 from word_document_server.engine.ranges import insert_text, replace_range
 from word_document_server.engine.textmodel import visible_text
-from word_document_server.utils.document_utils import body_element, body_paragraphs
+from word_document_server.utils.document_utils import body_element, indexed_paragraphs
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension, get_file_lock
 
 
@@ -438,6 +438,11 @@ async def add_bookmark(
 ) -> str:
     """Add a named bookmark at a paragraph.
 
+    `paragraph_index` is read in the V2 index space -- the one ``find_text``
+    reports -- so the paragraph bookmarked is the paragraph the search tools
+    pointed at, content controls included; see
+    :func:`~word_document_server.utils.document_utils.indexed_paragraphs`.
+
     The id comes from :func:`~word_document_server.engine.ids.next_annotation_id`,
     which reads the whole package: a bookmark, a revision and a comment anchor
     share one id space, and a random number in ``1000..99999`` collided with it
@@ -463,7 +468,7 @@ async def add_bookmark(
         async with get_file_lock(filename):
             pkg = DocxPackage.open(filename)
             body = body_element(pkg)
-            paragraphs = body_paragraphs(body)
+            paragraphs = indexed_paragraphs(body)
             if paragraph_index >= len(paragraphs):
                 return f"Paragraph {paragraph_index} does not exist."
 
