@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **`merge_documents`** — now merges into the **first source document** (its styles, numbering, sections, headers and footers are kept) instead of a blank `Document()`; the body of every other source is appended element by element (runs, images, hyperlinks, bookmarks, fields, tracked changes and tables carried over). A source carrying comments, footnotes or endnotes is refused (`Failed to merge documents: …`, target left untouched). The headers and footers of the appended sources are ignored and listed under `Warnings:` after the success message.
+
+### Fixed
+- **`replace_block_between_manual_anchors`** — an `end_anchor_text` matching no paragraph is now reported (`End anchor 'X' not found.`) and nothing is written; it previously deleted everything up to the end of the document.
+- **`replace_paragraph_block_below_header` / `replace_block_between_manual_anchors`** — a block holding more section breaks (`w:sectPr`) than the replacement paragraphs can carry is refused (`Refusing to replace the block: it holds N section break(s) and only M replacement paragraph(s) to carry them.`) instead of silently dropping one and changing the page setup of everything that follows.
+
 ## [1.6.0] - 2026-04-29
 
 ### Added
