@@ -1,6 +1,6 @@
 # PROGRESS — v2-semantic-engine
 
-Updated 2026-09-09 · s2 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
+Updated 2026-09-09 · s3 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
 ## J01 — Harnais de fidélité documentaire (7/7)
 
@@ -14,7 +14,7 @@ Updated 2026-09-09 · s2 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P6 | Review J01 | T2 | ✅ | 1 | round 1 failed → 3 corrections ; round 2 done, 3 should-fix restants (D-004) |
 | J01-P7 | Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués | T3 | ✅ | 1 | corrective D-004 ; `REL-REF-UNRESOLVED`, `Snapshot.sect_pr`, 4 tests positifs ; suite 176→183 passed |
 
-## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (7/9)
+## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (8/9)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -25,7 +25,7 @@ Updated 2026-09-09 · s2 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J02-P5 | Recherche | T4 | ✅ | 1 | `find`, `iter_paragraphs` ; `"body"` alias de `"document"`, `Match.index int \| None` (D-006) |
 | J02-P6 | Révisions | T2 | ✅ | 1 | `tracked_*(pkg, …)`, `list_revisions`, `accept`/`reject` ; genres non gérés refusés, pas ignorés ; 57 tests ; a levé D-008 |
 | J02-P8 | Correctif D-007 : aller-retour `open`/`save` neutre, assertions `is_empty()` | T3 | ✅ | 1 | `LIVE_CONTENT_TYPES` ; aller-retour neutre 0/19 → 19/19 ; garde grep `is_empty()` ; suite 775 passed |
-| J02-P9 | Marque de paragraphe insérée dans accept/reject | T3 | ⬜ | 0 | part de suivi D-008 |
+| J02-P9 | Marque de paragraphe insérée dans accept/reject | T3 | ✅ | 1 | suivi D-008 ; `_joins_paragraphs(kind, accepting)` partagé par le pré-contrôle et `_apply_one` ; 780 passed, 9 xfailed |
 | J02-P7 | Review J02 | T2 | ⬜ | 0 | dépend de J02-P8 et J02-P9 ; lancée en s2, coupée par une limite de session Opus (429) avant tout finding : try rendu |
 
 ## J03 — Migration des outils existants sur le cœur (0/8)

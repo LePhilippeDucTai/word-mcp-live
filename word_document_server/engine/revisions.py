@@ -84,6 +84,17 @@ the ids *before* touching the document.  What they do apply:
     which then governs the result -- a paragraph mark carries the paragraph's
     properties, so the surviving mark is the next paragraph's.  Reject only
     removes the revision, leaving the two paragraphs apart.
+``paragraph-mark-ins``
+    the mirror image: accept only removes the revision, leaving the paragraph
+    the reviewer added where it stands; reject removes the mark *and* merges the
+    paragraph into the following one, undoing the split.  The next paragraph
+    governs the result there too, for the same reason.
+
+A merge needs a paragraph to merge into, and the following sibling is not always
+one -- a table, or the end of the story, stops it.  Accepting a deleted mark or
+rejecting an inserted one in that position is refused with the ids, before any
+mutation, rather than applied as a bare mark removal that would leave the split
+in place while reporting it undone.
 
 Removing a ``w:ins`` or a ``w:del`` never drops a marker: bookmarks, comment
 ranges and permission ranges found inside are moved to the position the element
@@ -157,7 +168,9 @@ REVISION_KINDS: frozenset[str] = frozenset(
 
 #: The kinds :func:`accept` and :func:`reject` know how to apply.  Anything else
 #: is refused rather than skipped; see the module docstring.
-SUPPORTED_KINDS: frozenset[str] = frozenset({"ins", "del", "paragraph-mark-del"})
+SUPPORTED_KINDS: frozenset[str] = frozenset(
+    {"ins", "del", "paragraph-mark-del", "paragraph-mark-ins"}
+)
 
 _W_P = qn("w:p")
 _W_R = qn("w:r")
@@ -896,6 +909,21 @@ def _merge_into_next(paragraph: etree._Element) -> None:
         parent.remove(paragraph)
 
 
+def _joins_paragraphs(kind: RevisionKind, *, accepting: bool) -> bool:
+    """Whether applying `kind` this way has to merge the paragraph into the next.
+
+    A paragraph mark that a reviewer deleted really disappears when the deletion
+    is accepted, and a mark they inserted really disappears when the insertion is
+    rejected: both leave one paragraph where there were two.  The other two
+    combinations only drop the revision element.
+    """
+    if kind == "paragraph-mark-del":
+        return accepting
+    if kind == "paragraph-mark-ins":
+        return not accepting
+    return False
+
+
 def _unsupported(refused: list[tuple[int | None, str]]) -> UnsupportedRevision:
     """Build the refusal, naming every id that stands in the way."""
     listed = ", ".join(
@@ -943,14 +971,11 @@ def _apply(
         if kind not in SUPPORTED_KINDS:
             refused.append((entry.revision.id, kind))
         elif (
-            accepting
-            and kind == "paragraph-mark-del"
+            _joins_paragraphs(kind, accepting=accepting)
             and entry.paragraph is not None
             and _merge_target(entry.paragraph) is None
         ):
-            refused.append(
-                (entry.revision.id, "paragraph-mark-del without a paragraph to merge into")
-            )
+            refused.append((entry.revision.id, f"{kind} without a paragraph to merge into"))
     if refused:
         raise _unsupported(refused)
 
@@ -982,13 +1007,13 @@ def _apply_one(entry: _Entry, *, accepting: bool) -> None:
             _show_text(element)
             _unwrap(element)
         return
-    # paragraph-mark-del: the mark goes either way, the paragraphs only merge
-    # when the deletion is accepted.
+    # A paragraph-mark revision: the revision element goes either way, and the
+    # paragraphs merge only in the direction that removes the mark for good.
     paragraph = entry.paragraph
     holder = element.getparent()
     if holder is not None:
         holder.remove(element)
-    if accepting and paragraph is not None:
+    if paragraph is not None and _joins_paragraphs(kind, accepting=accepting):
         _merge_into_next(paragraph)
 
 
@@ -1006,7 +1031,8 @@ def accept(
 
     An insertion loses its wrapper and keeps its text; a deletion goes away with
     its content, its markers moved to where it stood; a deleted paragraph mark
-    merges its paragraph into the following one, which governs the result.
+    merges its paragraph into the following one, which governs the result; an
+    inserted paragraph mark simply loses the revision and the split stands.
 
     Returns:
         The revisions accepted, in document order.  A revision nested in another
@@ -1016,7 +1042,8 @@ def accept(
         LocatorError: ``not-found`` if `ids` names a revision the package does
             not have -- a silent no-op would look like a success.
         UnsupportedRevision: if the selection covers a kind this part does not
-            apply, listing the ids.  Nothing has been changed when it is raised.
+            apply, or a deleted paragraph mark with no paragraph to merge into,
+            listing the ids.  Nothing has been changed when it is raised.
     """
     return _apply(pkg, ids, author, accepting=True)
 
@@ -1032,7 +1059,8 @@ def reject(
     An insertion goes away with its content, its markers moved to where it
     stood; a deletion is unwrapped and its ``w:delText`` becomes ``w:t`` again;
     a deleted paragraph mark simply loses the revision, and the two paragraphs
-    stay apart.
+    stay apart; an inserted paragraph mark loses the revision *and* its paragraph
+    is merged into the following one, which governs the result.
 
     Rejecting what :func:`tracked_delete`, :func:`tracked_insert` or
     :func:`tracked_replace` recorded restores the document they were given.
@@ -1044,6 +1072,7 @@ def reject(
         LocatorError: ``not-found`` if `ids` names a revision the package does
             not have.
         UnsupportedRevision: if the selection covers a kind this part does not
-            apply, listing the ids.  Nothing has been changed when it is raised.
+            apply, or an inserted paragraph mark with no paragraph to merge into,
+            listing the ids.  Nothing has been changed when it is raised.
     """
     return _apply(pkg, ids, author, accepting=False)
