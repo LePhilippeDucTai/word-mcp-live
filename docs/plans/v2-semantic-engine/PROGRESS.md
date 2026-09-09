@@ -42,7 +42,7 @@ Updated 2026-09-10 · s5 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P7 | Retrait du hook de sauvegarde, écritures atomiques, annotations | T4 | ✅ | 1 | `save_utils.py` supprimé, `protection_tools` sur `atomic_write_bytes`, préfixes `DESTRUCTIVE` retirés de `main.py` ; bug latent corrigé : `msoffcrypto.exceptions.InvalidFormatError` n'existe pas dans la version installée (`FileFormatError`) ; 59 passed, 1 xfailed |
 | J03-P9 | Correctif D-012 : caractérisation des tracked changes alignée sur J03-P2 | T4 | ✅ | 1 | 3 tests renommés (XPASS→verts) ; `_reindex_after_merge` sur les 2 `touches_only…` ; `tests/characterization` : 49 passed, 4 xfailed |
 | J03-P10 | Correctif D-013 : profil `soffice` jetable par conversion | T5 | ✅ | 1 | `-env:UserInstallation` jetable par appel, `rmtree` en `finally` ; 3 tests dont 1 de concurrence réelle (LibreOffice 25.2 présent, non skip) ; 14 passed |
-| J03-P11 | Correctif D-015 : CHANGELOG des changements de comportement de J03 | T5 | ⬜ | 0 | entrée `[Unreleased]` ; `pyproject.toml` à 1.6.20 alors que la dernière entrée est 1.6.0 (versionnage hors plan) |
+| J03-P11 | Correctif D-015 : CHANGELOG des changements de comportement de J03 | T5 | ✅ | 1 | entrée `[Unreleased]` : 1 `Changed` (fusion) + 2 `Fixed` (garde-fous) ; préambule et historique ≥ 1.6.0 byte à byte intacts (hashes) ; 7/7 acceptations rejouées sur la base |
 | J03-P8 | Review J03 | T2 | ⬜ | 0 | depends_on étendu à J03-P9, J03-P10, J03-P11 ; relit aussi J02-P10 |
 
 ## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/6)
