@@ -182,6 +182,32 @@ Tests : `test_every_xml_part_is_loaded_live` remplacé par (a) toute partie pré
 ### Context
 Cause : `docx.oxml.parser.oxml_parser` est construit avec `remove_blank_text=True` — toute partie que python-docx parse perd ses blancs inter-éléments à la resérialisation ; ses parties enregistrées (python-docx 1.1.2 : document, header, footer, styles, numbering, settings, core) sont déjà neutres sur les fixtures, qui en sont issues. Mesuré le 2026-09-09 : aller-retour non neutre sur 19/19 fixtures, toujours les six mêmes parties, blancs seuls ; avec la liste blanche ci-dessus, 19/19 neutres, `validate_package` vide, `tests/` vert hors `test_every_xml_part_is_loaded_live`. `ids.py:93-95` (comments) et `format.py:574-577` (styles) lisent des parties de la liste blanche : rien à changer. `tests/engine/test_ranges_properties.py:78-91` (gelé, J02-P3) se compare à une base « ouverte puis sauvée » pour ne pas dépendre de ce défaut : sa docstring devient périmée, son contrat reste juste.
 
+## J02-P9 — Suivi D-008 : marque de paragraphe insérée dans `accept`/`reject`
+
+```yaml
+id: J02-P9
+kind: implement
+tier: T3
+size: S
+depends_on: [J02-P6]
+files:
+  - word_document_server/engine/revisions.py
+  - tests/engine/test_revisions.py
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine/test_revisions.py -q --timeout=60"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python -c \"import copy; from lxml import etree; from tests.fixtures.builders import build; from tests.support.snapshot import diff, snapshot; from word_document_server.engine.package import DocxPackage; from word_document_server.engine.revisions import accept, list_revisions, reject; from word_document_server.engine.xmlns import qn; source = DocxPackage.open(build('mixed_runs')).to_bytes(); pkg = DocxPackage.open(source); body = dict(pkg.stories())['document'].find(qn('w:body')); tail = next(p for p in body.iterchildren(qn('w:p')) if len(p.findall(qn('w:r'))) >= 2 and p.find(qn('w:pPr') + '/' + qn('w:rPr')) is not None); head = etree.Element(qn('w:p')); body.insert(body.index(tail), head); head.append(copy.deepcopy(tail.find(qn('w:pPr')))); mark = etree.Element(qn('w:ins'), {qn('w:id'): '9001', qn('w:author'): 'Reviewer', qn('w:date'): '2026-01-02T03:04:05Z'}); head.find(qn('w:pPr') + '/' + qn('w:rPr')).insert(0, mark); head.append(tail.find(qn('w:r'))); tracked = pkg.to_bytes(); mark.getparent().remove(mark); plain = pkg.to_bytes(); accepted = DocxPackage.open(tracked); assert [r.kind for r in accept(accepted)] == ['paragraph-mark-ins'] and list_revisions(accepted) == [] and diff(snapshot(plain), snapshot(accepted.to_bytes())).is_empty(), 'accept'; rejected = DocxPackage.open(tracked); assert [r.kind for r in reject(rejected)] == ['paragraph-mark-ins'] and list_revisions(rejected) == [] and diff(snapshot(source), snapshot(rejected.to_bytes())).is_empty(), 'reject'\""
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/ -q"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run ruff check ."
+```
+
+### Scope
+Part de suivi de J02-P6 (D-008) ; J02-P6 n'est pas réécrite.
+`SUPPORTED_KINDS` gagne `paragraph-mark-ins` (`w:ins` sous `w:pPr/w:rPr`). Accepter = retirer l'élément `w:ins` de la marque ; le paragraphe et son `w:pPr` restent. Rejeter = retirer la marque puis fusionner le paragraphe dans le suivant par `_merge_into_next` (le `w:pPr` du suivant gouverne, symétrique de l'acceptation d'une marque supprimée) ; sans paragraphe suivant (`_merge_target` → `None` : tableau ou fin de story) → `UnsupportedRevision` listant l'id avant toute mutation, même règle que `paragraph-mark-del` à l'acceptation. Les autres genres (`moveFrom`, `moveTo`, `rPrChange`, `pPrChange`, révisions de tableau) restent refusés, jamais ignorés. Docstrings de module (tableau « What they do apply »), d'`accept` et de `reject` mises à jour.
+Tests : `accept(pkg)` global sur un paquet dont la seule révision est une marque insérée (paragraphe de `mixed_runs` scindé entre deux runs, comme dans l'acceptation) laisse `list_revisions` vide et l'instantané de la scission non suivie ; `reject(pkg)` sur le même paquet restaure l'instantané d'origine ; rejet refusé sans cible de fusion ; deux marques insérées consécutives rejetées en un appel → un seul paragraphe, `w:pPr` du dernier ; sur `tracked_changes`, `accept(pkg, ids=[208])` garde texte et nombre de paragraphes, `reject(pkg, ids=[208])` est refusé (dernier paragraphe du corps) ; `test_accepting_everything_is_refused_while_a_kind_is_unsupported` attend désormais `ids == (205, 206)`.
+
+### Context
+`revisions.py:868-897` (`_merge_target`, `_merge_into_next`), `:913-992` (`_apply`, `_apply_one` : la branche `paragraph-mark-del` retire la marque puis fusionne si `accepting`), `:160` (`SUPPORTED_KINDS`). Fixture : `tests/fixtures/builders.py:697-703` (208, dernier paragraphe du corps ; Word pose la marque insérée sur le paragraphe scindé, jamais sur la marque finale d'une story). Mesuré le 2026-09-09 : le contrôle d'acceptation échoue aujourd'hui sur `9001 (paragraph-mark-ins)` ; en simulant « retirer la marque » puis « retirer et `_merge_into_next` », les deux instantanés attendus sont identiques.
+
 ## J02-P7 — Review J02
 
 ```yaml
@@ -189,7 +215,7 @@ id: J02-P7
 kind: review
 tier: T2
 size: S
-depends_on: [J02-P1, J02-P2, J02-P3, J02-P4, J02-P5, J02-P6, J02-P8]
+depends_on: [J02-P1, J02-P2, J02-P3, J02-P4, J02-P5, J02-P6, J02-P8, J02-P9]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine -q --timeout=60"

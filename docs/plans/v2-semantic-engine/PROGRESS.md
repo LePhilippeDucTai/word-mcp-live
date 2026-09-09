@@ -14,7 +14,7 @@ Updated 2026-09-09 · s2 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P6 | Review J01 | T2 | ✅ | 1 | round 1 failed → 3 corrections ; round 2 done, 3 should-fix restants (D-004) |
 | J01-P7 | Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués | T3 | ✅ | 1 | corrective D-004 ; `REL-REF-UNRESOLVED`, `Snapshot.sect_pr`, 4 tests positifs ; suite 176→183 passed |
 
-## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (7/8)
+## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (7/9)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -25,7 +25,8 @@ Updated 2026-09-09 · s2 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J02-P5 | Recherche | T4 | ✅ | 1 | `find`, `iter_paragraphs` ; `"body"` alias de `"document"`, `Match.index int \| None` (D-006) |
 | J02-P6 | Révisions | T2 | ✅ | 1 | `tracked_*(pkg, …)`, `list_revisions`, `accept`/`reject` ; genres non gérés refusés, pas ignorés ; 57 tests ; a levé D-008 |
 | J02-P8 | Correctif D-007 : aller-retour `open`/`save` neutre, assertions `is_empty()` | T3 | ✅ | 1 | `LIVE_CONTENT_TYPES` ; aller-retour neutre 0/19 → 19/19 ; garde grep `is_empty()` ; suite 775 passed |
-| J02-P7 | Review J02 | T2 | ⬜ | 0 | dépend de J02-P8 ; lancée en s2, coupée par une limite de session Opus (429) avant tout finding : try rendu |
+| J02-P9 | Marque de paragraphe insérée dans accept/reject | T3 | ⬜ | 0 | part de suivi D-008 |
+| J02-P7 | Review J02 | T2 | ⬜ | 0 | dépend de J02-P8 et J02-P9 ; lancée en s2, coupée par une limite de session Opus (429) avant tout finding : try rendu |
 
 ## J03 — Migration des outils existants sur le cœur (0/8)
 
@@ -73,12 +74,13 @@ Updated 2026-09-09 · s2 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 ## Next session
 
-- Ready: J02-P7 (revue J02, à relancer en premier ; seule part non ✅ de J02)
+- Ready: J02-P9 (suivi D-008), puis J02-P7 (revue J02, coupée en s2 : à relancer)
 - Orchestrator: opus/high
 - Decision: none (D-005, D-006, D-008 tranchées à la clôture de s2)
 
 ## Log
 
+- 2026-09-09 s2 (clôture): D-005 (lecture mécanique des champs imbriqués), D-006 (alias "body", index V2 None en cellule ; vocabulaire J03/J04 aligné), D-008 (+J02-P9) tranchées
 - 2026-09-09 s2: J01-P7, J02-P1..P6 et J02-P8 ✅ ; D-007 tranchée en séance (assertions `is_empty` vides + aller-retour `open`/`save` non neutre) → +J02-P8, aller-retour neutre 19/19 ; suite 1 → 775 passed ; J02-P7 coupée par une limite Opus, try rendu
 
 - 2026-09-09 s1: J01-P1..P6 ✅ ; revue round 1 en échec → corrections P3/P4/P5, round 2 sans finding bloquant ; D-003 (worktrees manuels), D-004 (+J01-P7 corrective)

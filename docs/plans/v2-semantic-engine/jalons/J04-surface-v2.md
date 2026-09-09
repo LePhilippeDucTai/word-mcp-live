@@ -21,8 +21,8 @@ acceptance:
 ```
 
 ### Scope
-Schéma de locator (dict) : `{"paragraph": i, "expect_text": s}` (i = index V2 : `w:p` du corps en ordre de document, contenu des sdt de bloc inclus, cellules exclues, base 0 ; `expect_text` = préfixe ou texte exact), `{"find": s, "occurrence": n, "within": locator}`, `{"bookmark": name}`, `{"heading": s}`, `{"table": t, "row": r, "col": c, "paragraph": k}`, clé optionnelle `"story"` (`body`, `header:i`, `footer:i`, `footnotes`, `endnotes`).
-`resolve(pkg, locator) -> Target(story, paragraph, index, start, end)` ; erreurs `LocatorError` avec code `not_found`, `ambiguous`, `stale_anchor` (candidats les plus proches en détail).
+Schéma de locator (dict) : `{"paragraph": i, "expect_text": s}` (i = index V2 : `w:p` du corps en ordre de document, contenu des sdt de bloc inclus, cellules exclues, base 0 ; `expect_text` = préfixe ou texte exact), `{"find": s, "occurrence": n, "within": locator}`, `{"bookmark": name}`, `{"heading": s}`, `{"table": t, "row": r, "col": c, "paragraph": k}`, clé optionnelle `"story"` = id de story tel que `DocxPackage.stories()` le rend (`document`, `header1`, `footer2`, `footnotes`, `endnotes`… ; `"body"` accepté en entrée comme alias de `document`, comme dans `find`, jamais rendu).
+`resolve(pkg, locator) -> Target(story, paragraph, index, start, end)`, même forme que `Match` : `story` = id réel, `paragraph` = `w:p` vivant, `index` = index V2 ou `None` pour un paragraphe en cellule (atteint par le locator `table`, jamais par `paragraph`) ; erreurs `LocatorError` avec code `not_found`, `ambiguous`, `stale_anchor` (candidats les plus proches en détail).
 `inspect(pkg) -> dict` : blocs (index, genre, style, préfixe de texte 80 caractères, niveau de liste, présence de champs, commentaires, révisions), tableaux (index, lignes, colonnes, première cellule), sections (format, orientation, marges, en-têtes et pieds), stories, compteurs, styles utilisés, signets, champs.
 Tests sur les fixtures : chaque forme de locator, ancre périmée, ambiguïté, indices V2 stables face aux cellules et sdt.
 
@@ -49,8 +49,8 @@ acceptance:
 ```
 
 ### Scope
-`registry.py` : `register_v2_tools(mcp)` découvre les modules `tools/v2/*.py` exposant `TOOLS: list[ToolSpec(fn, annotations, tags)]`, enregistre chaque fonction telle quelle (schéma dérivé de la signature, docstring = description), convertit les `EngineError` en `{"status": "error", "code", "message"}` ; résultat de succès `{"status": "ok", "dry_run", "changes": [{"story", "paragraph", "before", "after"}], "warnings"}` ; verrou de fichier via `utils.file_utils.get_file_lock`.
-`text.py` : `doc_inspect(filename)`, `doc_find(filename, pattern, regex, case, whole_word, stories, max_results)`, `doc_edit_text(filename, locator, action="replace" | "insert" | "delete", text, start, end, track_changes, author, dry_run)`, `doc_format_range(filename, locator, start, end, patch, dry_run)` ; `dry_run` ne sauvegarde rien mais renvoie le rapport complet.
+`registry.py` : `register_v2_tools(mcp)` découvre les modules `tools/v2/*.py` exposant `TOOLS: list[ToolSpec(fn, annotations, tags)]`, enregistre chaque fonction telle quelle (schéma dérivé de la signature, docstring = description), convertit les `EngineError` en `{"status": "error", "code", "message"}` ; résultat de succès `{"status": "ok", "dry_run", "changes": [{"story", "paragraph", "before", "after"}], "warnings"}` (`story` = id réel de story, `paragraph` = index V2 ou `null` en cellule de tableau) ; verrou de fichier via `utils.file_utils.get_file_lock`.
+`text.py` : `doc_inspect(filename)`, `doc_find(filename, pattern, regex, case, whole_word, stories, max_results)` (`stories` accepte l'alias `"body"` en entrée ; chaque résultat rapporte `Match.story` et `Match.index`, `null` en cellule), `doc_edit_text(filename, locator, action="replace" | "insert" | "delete", text, start, end, track_changes, author, dry_run)`, `doc_format_range(filename, locator, start, end, patch, dry_run)` ; `dry_run` ne sauvegarde rien mais renvoie le rapport complet.
 `main.py` : un seul appel `register_v2_tools(mcp)` dans `register_tools` ; aucun wrapper existant modifié.
 
 ### Context
