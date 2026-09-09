@@ -54,6 +54,30 @@ def _remove_element(
     raise AssertionError(f"no <{tag}> with {id_attr}={id_value!r} found in {part_name}")
 
 
+def _remove_relationship(parts: dict[str, bytes], rels_part: str, target: str) -> str:
+    """Remove the Relationship of `rels_part` aimed at `target`; return its Id."""
+    root = etree.fromstring(parts[rels_part])
+    for rel in root.findall(f"{{{REL_NS}}}Relationship"):
+        if rel.get("Target") == target:
+            root.remove(rel)
+            parts[rels_part] = _serialize(root)
+            return rel.get("Id") or ""
+    raise AssertionError(f"no relationship targeting {target!r} in {rels_part}")
+
+
+def _renumber_element(
+    parts: dict[str, bytes], part_name: str, tag: str, old_id: str, new_id: str
+) -> None:
+    """Give the first `w:<tag>` carrying `old_id` the id `new_id` instead."""
+    root = etree.fromstring(parts[part_name])
+    for el in root.iter(f"{{{W_NS}}}{tag}"):
+        if el.get(f"{{{W_NS}}}id") == old_id:
+            el.set(f"{{{W_NS}}}id", new_id)
+            parts[part_name] = _serialize(root)
+            return
+    raise AssertionError(f"no <{tag}> with id={old_id!r} found in {part_name}")
+
+
 def _write_zip(path: Path, parts: dict[str, bytes]) -> None:
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
         for name, data in parts.items():
@@ -189,6 +213,49 @@ def test_validate_package_detects_missing_relationship_target(tmp_path):
     assert any(i.code == "REL-TARGET-MISSING" for i in issues), issues
 
 
+def test_validate_package_detects_unresolved_image_relationship(tmp_path):
+    """The drawing still carries r:embed but the image relationship is gone.
+
+    The image part itself stays in the package, so REL-TARGET-MISSING (which
+    only walks rels -> part) sees nothing: only the part -> rels direction
+    catches this loss.
+    """
+    parts = _parts_from_bytes(build("drawings"))
+    original = tmp_path / "drawings.docx"
+    _write_zip(original, parts)
+    assert validate_package(original) == []
+
+    _remove_relationship(parts, "word/_rels/document.xml.rels", "media/image1.png")
+    assert "word/media/image1.png" in parts
+    path = tmp_path / "unresolved_image.docx"
+    _write_zip(path, parts)
+
+    issues = validate_package(path)
+    assert any(
+        i.code == "REL-REF-UNRESOLVED" and i.part == "word/document.xml"
+        for i in issues
+    ), issues
+
+
+def test_validate_package_detects_unresolved_header_relationship(tmp_path):
+    """The body sectPr still carries a headerReference the rels no longer knows."""
+    parts = _parts_from_bytes(build("headers_footers"))
+    original = tmp_path / "headers_footers.docx"
+    _write_zip(original, parts)
+    assert validate_package(original) == []
+
+    _remove_relationship(parts, "word/_rels/document.xml.rels", "header1.xml")
+    assert "word/header1.xml" in parts
+    path = tmp_path / "unresolved_header.docx"
+    _write_zip(path, parts)
+
+    issues = validate_package(path)
+    assert any(
+        i.code == "REL-REF-UNRESOLVED" and i.part == "word/document.xml"
+        for i in issues
+    ), issues
+
+
 def test_validate_package_detects_duplicate_id(tmp_path):
     path = _make_base_docx(tmp_path)
     parts = _read_zip(path)
@@ -198,6 +265,40 @@ def test_validate_package_detects_duplicate_id(tmp_path):
 
     issues = validate_package(path)
     assert any(i.code == "ID-DUPLICATE" for i in issues), issues
+
+
+def test_validate_package_detects_duplicate_revision_id(tmp_path):
+    """Two <w:ins> sharing an id: the revision family, not the bookmark one."""
+    parts = _parts_from_bytes(build("tracked_changes"))
+    original = tmp_path / "tracked_changes.docx"
+    _write_zip(original, parts)
+    assert validate_package(original) == []
+
+    _renumber_element(parts, "word/document.xml", "ins", "203", "201")
+    path = tmp_path / "duplicate_revision.docx"
+    _write_zip(path, parts)
+
+    issues = validate_package(path)
+    assert any(
+        i.code == "ID-DUPLICATE" and "revision" in i.message for i in issues
+    ), issues
+
+
+def test_validate_package_detects_duplicate_comment_id(tmp_path):
+    """Two <w:comment> sharing an id inside word/comments.xml."""
+    parts = _parts_from_bytes(build("comments"))
+    original = tmp_path / "comments.docx"
+    _write_zip(original, parts)
+    assert validate_package(original) == []
+
+    _renumber_element(parts, "word/comments.xml", "comment", "2", "1")
+    path = tmp_path / "duplicate_comment.docx"
+    _write_zip(path, parts)
+
+    issues = validate_package(path)
+    assert any(
+        i.code == "ID-DUPLICATE" and "comment id" in i.message for i in issues
+    ), issues
 
 
 def test_validate_package_detects_part_without_content_type(tmp_path):

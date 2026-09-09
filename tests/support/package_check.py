@@ -6,6 +6,13 @@ and, later in this plan, to confirm that tools do not corrupt a document
 while editing it. It never opens the file with Word or LibreOffice; it only
 reasons about the zip package and its XML parts (same style as
 `word_document_server/core/footnotes.py:validate_document_footnotes`).
+
+Relationship references are checked in both directions. `REL-TARGET-MISSING`
+reports a `.rels` entry whose target part is absent from the package (rels ->
+part). `REL-REF-UNRESOLVED` reports the opposite loss (part -> rels): a story
+part still carrying an `r:` reference (`r:id`, `r:embed`, `r:link`, ...) whose
+`Relationship` no longer exists in the `.rels` of that part -- an image, a
+header or a hyperlink the document points at but that nothing can resolve.
 """
 
 import posixpath
@@ -19,8 +26,12 @@ from lxml import etree
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 CT_NS = "http://schemas.openxmlformats.org/package/2006/content-types"
 REL_NS = "http://schemas.openxmlformats.org/package/2006/relationships"
+# Namespace of the `r:` attributes a part uses to point at its own relationships
+# (`r:id`, `r:embed`, `r:link`, ...); distinct from the package-level REL_NS.
+R_NS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
 
 _W = f"{{{W_NS}}}"
+_R = f"{{{R_NS}}}"
 
 _CONTENT_TYPES_PART = "[Content_Types].xml"
 _MAIN_RELATIONSHIP_TYPE_SUFFIX = "/officeDocument"
@@ -41,6 +52,19 @@ def _is_body_part(name: str) -> bool:
         return True
     stem = name.rsplit("/", 1)[-1]
     return stem.startswith(("header", "footer"))
+
+
+def _is_story_part(name: str) -> bool:
+    """True for the XML parts that carry document content, comments included."""
+    if not name.endswith(".xml"):
+        return False
+    return _is_body_part(name) or name == "word/comments.xml"
+
+
+def _rels_part_of(name: str) -> str:
+    """Path of the `.rels` part describing `name` (it need not exist)."""
+    directory, base = posixpath.split(name)
+    return posixpath.join(directory, "_rels", base + ".rels")
 
 
 @dataclass(frozen=True)
@@ -181,6 +205,41 @@ def validate_package(path: str | Path) -> list[Issue]:
             issues.append(
                 Issue("MAIN-PART-MISSING", main_part_target, "main document part is absent")
             )
+
+        # Every `r:` reference carried by a story part resolves to a
+        # Relationship of that part's own .rels: the reverse direction of
+        # REL-TARGET-MISSING, which only walks rels -> part.
+        for name in names:
+            root = xml_roots.get(name)
+            if root is None or not _is_story_part(name):
+                continue
+            rels_name = _rels_part_of(name)
+            rels_root = xml_roots.get(rels_name)
+            known_ids: set[str | None] = (
+                set()
+                if rels_root is None
+                else {
+                    rel.get("Id")
+                    for rel in rels_root.findall(f"{{{REL_NS}}}Relationship")
+                }
+            )
+            for element in root.iter():
+                if not isinstance(element.tag, str):
+                    continue
+                for attribute, value in element.attrib.items():
+                    if not attribute.startswith(_R) or not value:
+                        continue
+                    if value in known_ids:
+                        continue
+                    issues.append(
+                        Issue(
+                            "REL-REF-UNRESOLVED",
+                            name,
+                            f"<{etree.QName(element).localname} "
+                            f"r:{etree.QName(attribute).localname}='{value}'> "
+                            f"has no relationship in {rels_name}",
+                        )
+                    )
 
         # Ids unique per family: bookmarks and ins/del (revisions) across body
         # parts; comment ids within comments.xml.

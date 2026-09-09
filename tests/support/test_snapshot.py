@@ -269,6 +269,43 @@ def test_stories_are_indexed_separately():
     assert snap.text("header1") == ("header text",)
 
 
+def sectioned_docx(pg_mar: str) -> bytes:
+    """A document whose body ends on a ``w:sectPr`` pointing at a header story."""
+    header = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        f"<w:hdr {NS}>{para(run('header text'))}</w:hdr>"
+    )
+    body = (
+        para(run("body text"))
+        + '<w:sectPr><w:headerReference w:type="default" r:id="rId4"/>'
+        f'<w:pgSz w:w="12240" w:h="15840"/>{pg_mar}</w:sectPr>'
+    )
+    return make_docx(
+        body,
+        extra_parts={"word/header1.xml": header},
+        overrides=(
+            ("/word/document.xml", DOCUMENT_CT),
+            ("/word/header1.xml", HEADER_CT),
+        ),
+        document_rels=(("rId4", HEADER_REL, "header1.xml", None),),
+    )
+
+
+def test_body_sect_pr_is_captured_per_story():
+    snap = snapshot(sectioned_docx('<w:pgMar w:top="1440" w:bottom="1440"/>'))
+    assert "headerReference" in snap.sect_pr[MAIN_STORY]
+    # A header story has no w:body, so it carries no section properties.
+    assert snap.sect_pr["header1"] == ""
+
+
+def test_changing_the_page_setup_is_reported_as_a_sect_pr_change():
+    before = snapshot(sectioned_docx('<w:pgMar w:top="1440" w:bottom="1440"/>'))
+    after = snapshot(sectioned_docx('<w:pgMar w:top="720" w:bottom="720"/>'))
+    delta = diff(before, after)
+    assert [item.field for item in delta.sect_pr_changed] == [MAIN_STORY]
+    assert f"sect_pr {MAIN_STORY}" in delta.describe()
+
+
 # --------------------------------------------------------------------------
 # Paragraph signature detail
 # --------------------------------------------------------------------------
@@ -808,6 +845,28 @@ def test_deleting_an_inline_content_control_is_reported_on_a_relaxed_part():
             snapshot(combined_docx()), snapshot(mutated), paragraphs=[0]
         )
     assert "inline_controls" in str(caught.value)
+
+
+def test_body_sect_pr_is_guarded_on_a_relaxed_part():
+    """Header and footer references hang off the body sectPr, outside any paragraph.
+
+    Allowing a paragraph lifts the digest of ``word/document.xml``, so without
+    its own carrier this loss would go unseen; only naming the part relaxes it.
+    """
+    original = build("headers_footers")
+    stripped, headers = strip_elements(original, "headerReference")
+    mutated, footers = strip_elements(stripped, "footerReference")
+    assert headers + footers == 3
+
+    before, after = snapshot(original), snapshot(mutated)
+    assert before.sect_pr[MAIN_STORY] != after.sect_pr[MAIN_STORY]
+    assert "word/document.xml" in diff(before, after).parts_changed
+
+    with pytest.raises(AssertionError) as caught:
+        assert_unchanged_except(before, after, paragraphs=[0])
+    assert "sect_pr" in str(caught.value)
+
+    assert_unchanged_except(before, after, parts=["word/document.xml"])
 
 
 def test_paragraph_revisions_survive_a_relaxed_revision_counter_on_a_fixture():

@@ -2,7 +2,7 @@
 
 Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
-## J01 — Harnais de fidélité documentaire (6/7)
+## J01 — Harnais de fidélité documentaire (7/7)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -12,7 +12,7 @@ Updated 2026-09-09 · s1 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J01-P4 | Instantané canonique et comparaison | T3 | ✅ | 2 | review fix 1 : pPr, enfants de run, tblPr/trPr/tcPr, sdtPr ; index `story_root.iter(w:p)` |
 | J01-P5 | Caractérisation des outils existants | T4 | ✅ | 2 | review fix 1 : 4 bugs caractérisés (voir docs/audit/destructive-ops.md) |
 | J01-P6 | Review J01 | T2 | ✅ | 1 | round 1 failed → 3 corrections ; round 2 done, 3 should-fix restants (D-004) |
-| J01-P7 | Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués | T3 | ⬜ | 0 | part corrective D-004, ajoutée après la revue : J01 ne se termine donc plus par J01-P6 |
+| J01-P7 | Zones aveugles du harnais : références de relation, `sectPr` de corps, ids dupliqués | T3 | ✅ | 1 | corrective D-004 ; `REL-REF-UNRESOLVED`, `Snapshot.sect_pr`, 4 tests positifs ; suite 176→183 passed |
 
 ## J02 — Cœur OOXML : paquet, flux de texte, plages, révisions (0/7)
 
