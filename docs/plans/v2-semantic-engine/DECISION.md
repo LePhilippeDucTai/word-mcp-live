@@ -4,38 +4,32 @@
 
 # DECISION — v2-semantic-engine
 
-## D-016 — Les 10 points d'appel restés sur `doc.paragraphs` avec un `paragraph_index` public
+## D-020 — Point d'intégration sur `main` maintenant que la revue J03-P8 est verte
 
-J03-P1 a fait passer `find_text_in_document` de l'index python-docx à l'index V2 (qui compte les
-paragraphes d'un `w:sdt` de bloc). J03-P5 a suivi pour `delete_paragraph` et `add_bookmark` après le
-bloquant de la revue. Les autres consommateurs d'un `paragraph_index` public sont restés sur
-`doc.paragraphs`, mesuré par la revue round 2 sur un document à sommaire :
-`find_text_in_document("Charlie") → 5` puis `add_footnote_to_document(5, "note")` pose la note sur
-« Echo » et répond `Footnote added to paragraph 5` ; `get_paragraph_text(5) → "Echo"`.
+D-014 (user, 2026-09-10) posait : « `main` reste intact jusqu'à la revue J03-P8 — la session suivante
+lance la revue puis merge sur `main` ». La revue a tourné en s6 : round 1 en échec sur un bloquant
+(`delete_paragraph` hors espace V2, corrigé par J03-P5 review fix 1), round 2 **sans finding
+bloquant**, 24 acceptations et 5 Checks verts, 1091 passed / 1 xfailed, 120 outils MCP, signatures et
+formats de retour inchangés. La condition posée par D-014 est donc remplie.
 
-Points d'appel : `utils/extended_document_utils.py:63` (`get_paragraph_text`) ;
-`tools/footnote_tools.py:58,129,319,465,625` (5 outils de notes) ; `tools/layout_tools.py:351`
-(`set_paragraph_spacing`) ; `utils/document_utils.py:422,471,565` (`target_paragraph_index` des 3
-outils `insert_*_near_text`). Aucun n'est destructeur, mais tous rendent un résultat faux dès qu'un
-`w:sdt` de bloc est présent — et `add_table_of_contents` en insère un.
+Ce que D-014 ne pouvait pas prévoir : la même revue a établi que 5 points d'appel de la surface
+publique rendent encore un résultat faux dès qu'un `w:sdt` de bloc est présent — `get_paragraph_text`,
+`set_paragraph_spacing` et les 3 `insert_*_near_text` composent l'index python-docx avec l'index V2
+que `find_text_in_document` rend désormais. J04-P7 les corrige, en tête de J04, et embarque la 5e
+puce du CHANGELOG, la borne d'`add_bookmark` et le séparateur de `search_and_replace`.
 
-PLAN.md prescrit que « la migration J03 aligne sur l'espace V2 sans renommer les paramètres » ; les
-notes de bas de page sont explicitement hors périmètre du plan (« outils de notes de bas de page
-conservés tels quels ») et R-003 leur unification est déjà en réserve pour après J03.
+`main` a 66 commits d'avance sur la branche et 0 de retard (mesure de s5, à revérifier).
 
-- Options : (a) part corrective en tête de J04 qui aligne les 10 points d'appel sur
-  `indexed_paragraphs()`, sauf les 5 outils de notes qui partent en R-003 ; (b) part corrective
-  couvrant les 10, y compris les notes, en élargissant le périmètre ; (c) acter la divergence,
-  n'aligner rien et l'écrire au CHANGELOG (fusionne alors avec D-017).
-- Reco : (a) — l'espace d'index est le contrat que J04-P1 va réutiliser, le laisser à deux valeurs
-  sous le même nom de paramètre garantit qu'un appelant compose deux outils et corrompt son
-  document ; les notes de bas de page sont hors scope du plan et déjà couvertes par R-003, les y
-  laisser évite d'ouvrir dans J04 le refactor que R-003 décrit.
-- Bloque : rien de ⬜ formellement, mais J04-P1 (locators et inspection) bâtit sur cet espace.
-- Source : J03-P8 revue round 2 (should-fix).
+- Options : (a) merger après J04-P7, quand la surface publique est cohérente sur un seul espace
+  d'index ; (b) merger maintenant, D-014 étant remplie à la lettre, et laisser J04-P7 arriver
+  ensuite ; (c) ouvrir une pull request depuis `v2-semantic-engine` au lieu de merger en local.
+- Reco : (a) — le motif écrit de D-014 est que « J03 réécrit la surface des outils existants (120
+  noms, signatures et formats de retour censés être inchangés) » ; or c'est précisément cette
+  surface que J04-P7 finit de rendre cohérente, et un merge intermédiaire livrerait sur `main` deux
+  sens de `paragraph_index` sous le même nom de paramètre.
+- Bloque : rien de ⬜ (J04-P7 et la suite de J04 se font sur la branche).
+- Source : D-014 arrivée à échéance, revue J03-P8 round 2.
 
 ## Queue
 
-- D-017 — 5e puce `[Unreleased]` sur le changement d'espace d'index (`CHANGELOG.md:11`) : les 4 puces couvrent `merge_documents`, `add_header_footer` et 2 garde-fous, mais pas le changement le plus visible pour l'appelant — `paragraph_index` de `find_text_in_document`/`delete_paragraph`/`add_bookmark` compte désormais les paragraphes d'un `w:sdt` de bloc, ce qui casse les index qu'un appelant avait enregistrés ; D-015 a été créée sur l'argument qu'un changement de comportement non écrit est une rupture d'API silencieuse. Options : écrire la puce dans la part corrective de D-016 — part `CHANGELOG.md` dédiée — ne rien écrire ; reco : écrire la puce dans la part corrective de D-016, son contenu final dépend de ce que D-016 aligne. Bloque : rien. Source : J03-P8 round 2 (should-fix) · defer: D-016
-- D-018 — `add_bookmark` sans borne inférieure (`tools/layout_tools.py:472`) : la garde ne teste que `paragraph_index >= len(paragraphs)`, donc `add_bookmark(path, -1, "Neg")` signe le dernier paragraphe et répond `{"success": true, "paragraph_index": -1}`, là où `delete_paragraph(-1)` refuse avec `Invalid paragraph index. Document has 3 paragraphs (0-2).` ; défaut antérieur au jalon, mais les deux outils partagent maintenant le même espace d'index. Options : ajouter `paragraph_index < 0 or` à la garde dans la part corrective de D-016 — laisser tel quel ; reco : ajouter la garde, une ligne, et deux outils du même espace qui divergent sur les bornes est un piège d'appelant. Bloque : rien. Source : J03-P8 round 2 (optional)
-- D-019 — ponctuation doublée de `search_and_replace` (`tools/content_tools.py:647`) : quand toutes les occurrences tombent dans un champ, le message est `No occurrences of 'X' found., 1 skipped (inside fields)`, forme figée par `tests/tools/test_search_replace.py:194`. Touche un format de retour d'outil, donc l'invariant de compatibilité. Options : corriger le séparateur pour le cas « 0 remplacement » et mettre le test à jour — laisser tel quel (format figé) ; reco : corriger, un format de retour ne se fige que sur ce qu'un appelant peut parser et cette virgule n'est décrite nulle part. Bloque : rien. Source : J03-P8 round 1 (optional)
+- D-021 — message non déterministe d'`insert_line_or_paragraph_near_text` (`utils/document_utils.py`) : appelé sans `line_style`, l'outil interpole l'objet style dans son message de retour (`style '_ParagraphStyle('Normal') id: 1407…'`), donc une chaîne qui change à chaque exécution ; relevé par le planner en s6, hors du trigger du plan update, laissé tel quel. Options : corriger dans J04-P7 (déjà propriétaire de `document_utils.py`) — part corrective séparée — laisser tel quel ; reco : corriger dans J04-P7, un `id:` d'objet Python dans un message d'outil n'est parsable par personne et rend le message intestable. Bloque : rien. Source : plan update s6 (planner)

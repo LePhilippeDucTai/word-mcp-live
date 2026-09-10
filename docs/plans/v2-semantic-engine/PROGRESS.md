@@ -45,16 +45,17 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P11 | Correctif D-015 : CHANGELOG des changements de comportement de J03 | T5 | ✅ | 1 | entrée `[Unreleased]` : 1 `Changed` (fusion) + 2 `Fixed` (garde-fous) ; préambule et historique ≥ 1.6.0 byte à byte intacts (hashes) ; 7/7 acceptations rejouées sur la base |
 | J03-P8 | Review J03 | T2 | ✅ | 1 | round 1 **failed** (1 bloquant : `delete_paragraph`/`add_bookmark` hors espace V2, `find_text → 5` supprimait « Echo ») → J03-P5 review fix 1 ; round 2 sans finding bloquant ; 24 acceptations + 5 Checks verts, 1091 passed / 1 xfailed, 120 outils MCP, `uv lock --check` 0 ; 2 should-fix (D-016, D-017) + 2 optional (D-018, D-019) |
 
-## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/6)
+## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/7)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
-| J04-P1 | Locators et inspection | T3 | ⬜ | 0 | |
+| J04-P7 | Correctif D-016 : un seul espace d'index pour `paragraph_index` (D-017, D-018, D-019 embarquées) | T3 | ⬜ | 0 | en tête de J04, `depends_on: []` ; 6 des 8 acceptations sont rouges sur le code actuel ; notes de bas de page délibérément hors périmètre (R-003) |
+| J04-P1 | Locators et inspection | T3 | ⬜ | 0 | `depends_on: [J04-P7]` (réutilise `_v2_index_map` / `indexed_paragraphs()`) |
 | J04-P2 | Outils `doc_*` texte, enregistrement, rapport structuré | T3 | ⬜ | 0 | |
 | J04-P3 | Plateformes, TOOLS.md généré, garde-fous de dérive, registre corrigé | T4 | ⬜ | 0 | |
 | J04-P4 | Plantages macOS prouvés par lecture | T4 | ⬜ | 0 | |
 | J04-P5 | Lot atomique `doc_apply_edits` | T4 | ⬜ | 0 | |
-| J04-P6 | Review J04 | T2 | ⬜ | 0 | |
+| J04-P6 | Review J04 | T2 | ⬜ | 0 | `depends_on` étendu à J04-P7 ; relit l'alignement, les notes laissées à l'écart, la 5e puce, la borne d'`add_bookmark` et les 2 formes de `search_and_replace` |
 
 ## J05 — Styles, thème, format effectif, numérotation, styles de tableau (0/6)
 
@@ -78,14 +79,14 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 ## Next session
 
-- Ready: J04-P1..P5 (J04-P1 et J04-P2 d'abord ; `depends_on` sur J03, désormais complet), J04-P6 en revue. Cap de vague 4, `files` disjoints.
-- Avant d'ouvrir J04 : D-016 (espace d'index des 10 points d'appel restés sur `doc.paragraphs`) touche le contrat que J04-P1 réutilise (`_v2_index_map`) — la trancher d'abord. D-014 est levée : la revue J03-P8 est verte, le merge de `v2-semantic-engine` sur `main` est ouvert.
-- Orchestrator: best/max (décisions en attente)
-- Decision: D-016 (détaillée dans DECISION.md), puis D-017, D-018, D-019 en file
+- Ready: **J04-P7 en premier** (T3, `depends_on: []`, tourne seule — J04-P1 en dépend et J04-P2..P5 partagent `content_tools.py`/`layout_tools.py` avec elle). Puis J04-P1..P5 (cap de vague 4, `files` disjoints), J04-P6 en revue.
+- D-020 (merge de `v2-semantic-engine` sur `main`) est à trancher au démarrage : la revue J03-P8 est verte, ce qui lève la condition posée par D-014, mais J04-P7 corrige encore la surface publique de 5 outils.
+- Orchestrator: best/max (D-020 et D-021 en attente)
+- Decision: D-020 (détaillée dans DECISION.md), puis D-021 en file
 
 ## Log
 
-- 2026-09-10 s6: J03-P11 ✅ (entrée `[Unreleased]`, 7/7 acceptations) ; revue J03-P8 round 1 **failed** sur 1 bloquant — `find_text_in_document` rendait un index V2 depuis J03-P1 tandis que `delete_paragraph` et `add_bookmark` indexaient les enfants du corps, donc `find_text → 5` puis `delete_paragraph(5)` supprimait le mauvais paragraphe en répondant « deleted successfully », dès qu'un `w:sdt` de bloc était présent (celui qu'`add_table_of_contents` insère lui-même) → J03-P5 review fix 1 (T2, essai 3) : `indexed_paragraphs()` réutilise `_v2_index_map`, retrait par `getparent().remove()`, `w:sectPr` reporté sur le précédent de l'espace V2, `replace_content` transmis par le wrapper `main.py`, 4e puce au CHANGELOG, 4 tests rouges-puis-verts ; revue round 2 sans finding bloquant ; **J03 complet (11/11)** ; suite 1087 → 1091 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; 4 décisions ouvertes (D-016..D-019)
+- 2026-09-10 s6: J03-P11 ✅ (entrée `[Unreleased]`, 7/7 acceptations) ; revue J03-P8 round 1 **failed** sur 1 bloquant — `find_text_in_document` rendait un index V2 depuis J03-P1 tandis que `delete_paragraph` et `add_bookmark` indexaient les enfants du corps, donc `find_text → 5` puis `delete_paragraph(5)` supprimait le mauvais paragraphe en répondant « deleted successfully », dès qu'un `w:sdt` de bloc était présent (celui qu'`add_table_of_contents` insère lui-même) → J03-P5 review fix 1 (T2, essai 3) : `indexed_paragraphs()` réutilise `_v2_index_map`, retrait par `getparent().remove()`, `w:sectPr` reporté sur le précédent de l'espace V2, `replace_content` transmis par le wrapper `main.py`, 4e puce au CHANGELOG, 4 tests rouges-puis-verts ; revue round 2 sans finding bloquant ; **J03 complet (11/11)** ; suite 1087 → 1091 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; 4 décisions tranchées à la clôture (D-016 espace d'index sans les notes ; D-017 5e puce du CHANGELOG ; D-018 borne inférieure d'`add_bookmark` ; D-019 séparateur de `search_and_replace`) → **+J04-P7** en tête de J04, J04-P1 et J04-P6 en dépendent ; D-020 (merge sur `main`) et D-021 (message non déterministe d'`insert_line_or_paragraph_near_text`) laissées en file
 - 2026-09-10 s5: reprise de la s4 coupée en vol (PROGRESS.md non commité, worktree J03-P5 sans commit → essai 1 compté, 775 insertions sauvées en patch) ; D-013 tranchée au démarrage → +J03-P10 ✅ (profil `soffice` jetable, faux rouge sous parallélisme corrigé) ; J03-P5 ✅ en essai 2 (patch de reprise relu, 4 défauts réels corrigés) ; J03-P7 ✅ (hook de sauvegarde supprimé, écritures atomiques, `msoffcrypto.exceptions.InvalidFormatError` inexistant corrigé) ; **J03 à 9/10, seule la revue J03-P8 reste** ; suite 830 → 1087 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; D-014 (user) : `main` intact jusqu'à la revue
 - 2026-09-10 s5 (clôture): D-015 tranchée — le CHANGELOG des 3 changements de comportement de J03 n'était dans les `files` d'aucune part (D-011 le confiait à J03-P7, dispatchée sans, ou à J03-P8, qui est une revue) → +J03-P11 (T5, `CHANGELOG.md` seul), J03-P8 en dépend
 - 2026-09-09 s3: J02-P9 et J02-P7 (revue J02, round 1 sans finding bloquant) ✅ ; D-009 tranchée en séance sur les 2 should-fix de la revue (run sur conteneur sorti de son `w:hyperlink`/`w:sdt` par `tracked_insert`, index V2 faussé par les zones de texte) → +J02-P10 ✅ ; **J02 complet (10/10)** ; suite 775 → 830 passed, 9 xfailed
