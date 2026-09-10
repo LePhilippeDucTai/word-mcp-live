@@ -1,7 +1,49 @@
 # J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs
 
-Goal: Nouveaux outils `doc_*` sur le moteur : locators hybrides sans état, inspection, édition de texte avec `dry_run` et rapport structuré, lot atomique, capacités de plateforme, `TOOLS.md` et compteurs README générés avec garde-fous de dérive, registre corrigé, trois plantages macOS prouvés par lecture corrigés.
+Goal: Nouveaux outils `doc_*` sur le moteur : locators hybrides sans état, inspection, édition de texte avec `dry_run` et rapport structuré, lot atomique, capacités de plateforme, `TOOLS.md` et compteurs README générés avec garde-fous de dérive, registre corrigé, trois plantages macOS prouvés par lecture corrigés. Ouvre par la corrective D-016 : un seul espace d'index pour tout `paragraph_index` public, notes exceptées.
 Depends on: J03 · Orchestrator: opus/high
+
+## J04-P7 — Correctif D-016 : un seul espace d'index pour `paragraph_index` (D-017, D-018, D-019 embarquées)
+
+```yaml
+id: J04-P7
+kind: implement
+tier: T3
+size: M
+depends_on: []
+files:
+  - word_document_server/utils/extended_document_utils.py
+  - word_document_server/utils/document_utils.py
+  - word_document_server/tools/layout_tools.py
+  - word_document_server/tools/content_tools.py
+  - tests/tools/test_index_space.py
+  - tests/tools/test_search_replace.py
+  - CHANGELOG.md
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/tools/test_index_space.py tests/tools/test_search_replace.py tests/tools/test_layout_blocks.py tests/characterization -q"
+  - "grep -q 'def test_the_paragraph_read_is_the_one_find_text_reported' tests/tools/test_index_space.py && grep -q 'def test_the_paragraph_spaced_is_the_one_find_text_reported' tests/tools/test_index_space.py && grep -q 'def test_the_anchor_of_each_insert_near_text_is_the_one_find_text_reported' tests/tools/test_index_space.py && grep -q 'def test_a_negative_bookmark_index_is_refused' tests/tools/test_index_space.py"
+  - "! grep -q 'doc.paragraphs\\[paragraph_index\\]' word_document_server/utils/extended_document_utils.py && ! grep -q 'doc\\.paragraphs' word_document_server/tools/layout_tools.py && ! grep -q 'doc.paragraphs\\[target_paragraph_index\\]' word_document_server/utils/document_utils.py"
+  - "grep -q 'paragraph_index < 0 or paragraph_index >= len(paragraphs)' word_document_server/tools/layout_tools.py"
+  - "! grep -qF ', {report.skipped} skipped' word_document_server/tools/content_tools.py && ! grep -q 'found\\., ' tests/tools/test_search_replace.py"
+  - "test \"$(sed -n '/^## .Unreleased.$/,/^## .1.6.0. - 2026-04-29$/p' CHANGELOG.md | grep -c '^- ')\" -eq 5 && test \"$(grep -c '^## ' CHANGELOG.md)\" -eq 10"
+  - "grep -q 'find_text_in_document' CHANGELOG.md && grep -q 'get_paragraph_text_from_document' CHANGELOG.md && grep -q 'set_paragraph_spacing' CHANGELOG.md && grep -q 'insert_line_or_paragraph_near_text' CHANGELOG.md && grep -q 'w:sdt' CHANGELOG.md"
+  - "test \"$(head -n 7 CHANGELOG.md | sha256sum | cut -d' ' -f1)\" = e3f2ec4b33cfdeabaf535e8e00174ddc3e762efb0b41d2ea1591c247fc4033a9 && test \"$(sed -n '/^## .1.6.0. - 2026-04-29$/,$p' CHANGELOG.md | sha256sum | cut -d' ' -f1)\" = 6e7f8c4252d8a2b6d1a498f36f0e7e6262764dba59ef7943303119c2d3298fe5"
+```
+
+### Scope
+D-016 (revue J03-P8 round 2) : J03-P1 et J03-P5 ont mis `find_text_in_document`, `delete_paragraph` et `add_bookmark` dans l'espace V2, les autres consommateurs d'un `paragraph_index` public lisent encore `doc.paragraphs` (python-docx : enfants directs du corps, contenu d'un `w:sdt` de bloc exclu). Mesuré le 2026-09-10 sur un document à sommaire (`add_table_of_contents` insère un `w:sdt` de bloc de 2 paragraphes) : `find_text_in_document("Charlie") → 4`, puis `get_paragraph_text_from_document(4) → "Echo"`, `set_paragraph_spacing(paragraph_index=4)` espace « Echo », chacun des trois `insert_*_near_text(target_paragraph_index=4)` insère près de « Echo » en répondant `(index 4)`. Aucun n'est destructeur, tous sont faux dès qu'un `w:sdt` de bloc précède.
+Aligner sur `indexed_paragraphs()` (`utils/document_utils.py:748`, enveloppe de `_v2_index_map(iter_paragraphs(root))` : la réutiliser, jamais réécrire ni dupliquer le filtre) :
+- `utils/extended_document_utils.py::get_paragraph_text` — index et borne (`Document has N paragraphs`, N = taille de l'espace V2) ; lecture inchangée (`get_effective_text`, `paragraph.style.name`, clés du dict).
+- `tools/layout_tools.py::set_paragraph_spacing` — `total`, `paragraph_index` et la plage `start_paragraph`/`end_paragraph` dans le même espace (sans index = tout l'espace V2, paragraphes d'un sdt de bloc compris) ; `paragraph_format` conservé.
+- `utils/document_utils.py::insert_header_near_text`, `insert_line_or_paragraph_near_text`, `insert_numbered_list_near_text` — `target_paragraph_index` et sa borne ; la recherche par texte parcourt le même espace (règle de saut des styles `TOC…` conservée) pour que l'`(index N)` du message soit compté dans l'espace où `target_paragraph_index` est lu.
+Chemin vérifié : python-docx conservé, `[Paragraph(p, doc) for p in indexed_paragraphs(doc.element.body)]` (`docx.text.paragraph.Paragraph` ; `CT_Body` et `CT_P` sont des éléments lxml ; `.style`, `.paragraph_format`, `._element` fonctionnent) ; messages, clés et formats de retour inchangés, seuls N et le paragraphe atteint changent. `main.py` inchangé (signatures identiques). Rien dans `tools/footnote_tools.py` ni `core/footnotes.py` : les 5 outils de notes restent sur `doc.paragraphs`, écart assumé (Scope « Out », R-003, Risks du PLAN.md).
+D-018 : `tools/layout_tools.py:472` → `if paragraph_index < 0 or paragraph_index >= len(paragraphs):`, message `Paragraph -1 does not exist.` (forme existante).
+D-019 : `tools/content_tools.py:662`, site unique d'assemblage du suffixe → `message += f" {report.skipped} skipped (inside fields)."`, soit `No occurrences of 'Page 1' found. 1 skipped (inside fields).` et `Replaced 1 occurrence(s) of 'Fixture: fields' with 'Fixture: champs'. 1 skipped (inside fields).` (la forme `'., 1 skipped` du cas `Replaced` sort du même site et de J03-P1 : corrigée avec) ; `tests/tools/test_search_replace.py:177-180,194` mis à jour, rien d'autre dans ce fichier.
+D-017 : 5e puce de `## [Unreleased]`, dernière de `### Changed`, en anglais, format des 4 existantes (outils en code et gras, tiret cadratin, ancien puis nouveau comportement) : `find_text_in_document`, `delete_paragraph`, `add_bookmark`, `get_paragraph_text_from_document`, `set_paragraph_spacing`, `insert_header_near_text`, `insert_line_or_paragraph_near_text`, `insert_numbered_list_near_text` — `paragraph_index` / `target_paragraph_index` count every paragraph of the body in document order, the content of a block content control (`w:sdt`, the one `add_table_of_contents` inserts for instance) included, table cells and text boxes excluded ; they used to count python-docx's direct body paragraphs only, so an index recorded before this change may point at another paragraph in a document holding a block content control ; the footnote and endnote tools are unchanged and still count the direct body paragraphs. Préambule et historique ≥ 1.6.0 byte à byte intacts (hashes de J03-P11).
+Tests, `tests/tools/test_index_space.py` (nouveau ; helpers à recopier de `tests/tools/test_layout_blocks.py` — `_document_with_a_table_of_contents`, `_v2_index_of`, `_all_paragraph_texts` —, aucun import d'un module de test) : `test_the_paragraph_read_is_the_one_find_text_reported` (`get_paragraph_text_from_document(path, i)`, `i` rendu par `find_text` pour « Charlie » → `text == "Charlie"`, `index == i`) ; `test_the_paragraph_spaced_is_the_one_find_text_reported` (formes `paragraph_index` et `start_paragraph`/`end_paragraph` ; seul « Charlie » porte le `w:spacing`, `assert_unchanged_except(…, paragraphs=[i])` — sans tableau, l'espace de l'instantané est l'espace V2) ; `test_the_anchor_of_each_insert_near_text_is_the_one_find_text_reported` (paramétré sur les trois fonctions, `position="after"` : dans `_all_paragraph_texts` le nouveau paragraphe suit « Charlie », `(index i)` dans le message — assertion par sous-chaîne, le message de `insert_line_or_paragraph_near_text` interpole l'objet style sans `line_style`, défaut hors trigger à laisser) ; `test_a_negative_bookmark_index_is_refused` (`add_bookmark(path, -1, "Neg")` → pas de `"success"`, aucun `w:bookmarkStart` nommé `Neg`, octets du fichier intacts). Les quatre sont rouges sur le code actuel ; `validate_package(path) == []` après chaque écriture.
+
+### Context
+`utils/extended_document_utils.py:44-75` ; `tools/layout_tools.py:351-431` (`set_paragraph_spacing`, `doc.paragraphs` à `:395,410`), `:434-496` (`add_bookmark`, garde `:472`) ; `utils/document_utils.py:422-468, 471-523, 565-646` (`doc.paragraphs[target_paragraph_index]` à `:435,488,589`), `:736-766` (`body_paragraphs`, `indexed_paragraphs`) ; `tools/content_tools.py:655-663` ; `tools/extended_document_tools.py:18-38` (wrapper, refuse déjà `paragraph_index < 0`) ; `engine/find.py:93,134-172` (`_UNINDEXED_ANCESTORS`, `iter_paragraphs`, `_v2_index_map`). Hors `files`, à laisser : `tools/footnote_tools.py:58,129,319,465,625`, `core/footnotes.py:803,822`, `main.py`. Modèle de test : `tests/tools/test_layout_blocks.py:245-292` (J03-P5, mêmes documents, mêmes helpers). `CHANGELOG.md` : 154 lignes, `## [Unreleased]` ligne 8 (2 `Changed` + 2 `Fixed`), `## [1.6.0]` ligne 18 ; `sha256sum CHANGELOG.md` = `4862174bc4a1e7ceba5bf39ded135b75e589740f2ea3a5abf392a284121815d8` avant édition, sinon la base du worktree n'est pas la branche : `blocked`, ne pas adapter les hashes.
 
 ## J04-P1 — Locators et inspection
 
@@ -10,7 +52,7 @@ id: J04-P1
 kind: implement
 tier: T3
 size: M
-depends_on: []
+depends_on: [J04-P7]
 files:
   - word_document_server/engine/locators.py
   - word_document_server/engine/inspect.py
@@ -27,7 +69,7 @@ Schéma de locator (dict) : `{"paragraph": i, "expect_text": s}` (i = index V2 :
 Tests sur les fixtures : chaque forme de locator, ancre périmée, ambiguïté, indices V2 stables face aux cellules, aux zones de texte (`text_boxes`) et aux sdt.
 
 ### Context
-`engine/find.py::iter_paragraphs` et `_v2_index_map` (seul filtre de l'espace V2, partagé par `find` et `list_revisions` : le réutiliser, pas le réécrire), `engine/textmodel.py`. Le résultat de `inspect` est ce que l'agent lit avant de construire un locator.
+`engine/find.py::iter_paragraphs` et `_v2_index_map` (seul filtre de l'espace V2, partagé par `find` et `list_revisions` : le réutiliser, pas le réécrire), `engine/textmodel.py`. `indexed_paragraphs()` (`utils/document_utils.py`) est l'enveloppe côté outils du même filtre, alignée par J04-P7 sur les cinq derniers points d'appel : l'espace que `resolve` numérote est exactement celui que `find_text_in_document` et `get_paragraph_text_from_document` rendent — un filtre, deux enveloppes (`engine`, `utils`), jamais une troisième. Le résultat de `inspect` est ce que l'agent lit avant de construire un locator.
 
 ## J04-P2 — Outils `doc_*` texte, enregistrement, rapport structuré
 
@@ -145,7 +187,7 @@ id: J04-P6
 kind: review
 tier: T2
 size: S
-depends_on: [J04-P1, J04-P2, J04-P3, J04-P4, J04-P5]
+depends_on: [J04-P1, J04-P2, J04-P3, J04-P4, J04-P5, J04-P7]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine tests/tools tests/live tests/test_docs_sync.py tests/test_registry_consistency.py -q --timeout=60"
@@ -158,3 +200,4 @@ acceptance:
 
 ### Scope
 Review the merged milestone diff with verify-before-done, code-review, test-design. Report; change nothing.
+Relit aussi J04-P7 (corrective D-016, D-017, D-018, D-019) : les cinq points d'appel alignés sur `indexed_paragraphs()` sans second filtre ; les 5 outils de notes de `tools/footnote_tools.py` restés délibérément sur `doc.paragraphs` (hors périmètre, R-003 — pas un finding) ; la 5e puce `[Unreleased]` contre le code mergé, historique intact ; la borne inférieure d'`add_bookmark` ; le séparateur de `search_and_replace` dans ses deux formes.
