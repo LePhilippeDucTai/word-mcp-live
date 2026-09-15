@@ -1,340 +1,174 @@
-<div align="center">
-
-[![Install in Cursor](https://cursor.com/deeplink/mcp-install-dark.svg)](https://cursor.com/en/install-mcp?name=word&config=eyJjb21tYW5kIjoidXZ4IiwiYXJncyI6WyJ3b3JkLW1jcC1saXZlIl19)
-
 # word-mcp-live
 
-**The only MCP server that edits Word documents while they're open**
+**A semantic engine for Word documents, exposed over [MCP](https://modelcontextprotocol.io/).**
 
-`Live editing` &middot; `Tracked changes` &middot; `Per-action undo` &middot; `124 tools` &middot; `Cross-platform`
+An AI agent that edits a `.docx` by rewriting its text loses everything the text is not:
+character styles, theme fonts, fields, bookmarks, comment anchors, tracked changes,
+numbering, section layout. This server exists so that it does not have to. Its core is a
+pure OOXML engine that works on the XML of the package itself — it runs on Linux, in a
+container, on a machine where Microsoft Word has never been installed — and every edit it
+makes is scoped to the range it was asked to change.
 
-[![PyPI](https://img.shields.io/pypi/v/word-mcp-live?color=blue)](https://pypi.org/project/word-mcp-live/)
+On top of that core it exposes three families of tools: the cross-platform document tools,
+a stateless `doc_*` surface designed for agents, and live tools that drive a running copy
+of Word on Windows and macOS.
+
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Platform: Windows + macOS/Linux](https://img.shields.io/badge/platform-Windows%20%2B%20macOS%2FLinux-lightgrey)]()
-
-</div>
 
 ---
 
-word-mcp-live gives any AI assistant that supports [MCP](https://modelcontextprotocol.io/) full control of Microsoft Word. Open a document, tell the AI what you need, and watch it happen — formatting, tracked changes, comments, and all. Changes appear live in your open document.
+## What makes it different
 
-<table>
-<tr>
-<td width="50%">
+- **Non-degradation is the contract, not a side effect.** Text and formatting outside the
+  targeted range come out byte-identical; parts of the package that were not targeted are
+  untouched. These are tested invariants, not intentions — see
+  [Fidelity guarantees](#fidelity-guarantees).
+- **It refuses rather than approximates.** A range that would cut a field in half or
+  swallow an image raises a typed error instead of producing a document Word has to repair
+  on open.
+- **Stateless addressing.** A `doc_*` locator is a plain dict an agent can store and send
+  back later. There is no session, no handle, no id table to keep alive — and a locator
+  that no longer describes the document fails loudly instead of quietly hitting the wrong
+  paragraph.
+- **Dry run everywhere.** Every mutating `doc_*` tool takes `dry_run`, and reports the
+  before/after text of each paragraph it *would* change without writing anything.
+- **No Word required for the core.** The engine reads and writes the `.docx` package
+  directly. Word is needed only by the live tools.
 
-### Without word-mcp-live
+## Architecture
 
-- AI can discuss your document but can't touch it
-- You copy-paste between AI and Word, losing formatting
-- Track changes? You do those manually after the fact
-- Every edit means save → close → process → reopen
+The engine lives in `word_document_server/engine/`. It is synchronous Python over `lxml`,
+sitting on the OPC implementation shipped with python-docx. It has no MCP dependency and
+no Word dependency, and it reports failure through typed exceptions rather than return
+codes.
 
-</td>
-<td width="50%">
+The layers, bottom to top — each one only knows about the ones below it:
 
-### With word-mcp-live
-
-- "Add a tracked change replacing ABC Corp with XYZ Ltd" — done
-- Changes appear live in your open Word document
-- Every AI edit is one Ctrl+Z away
-- Real tracked changes with your name, not XML hacks
-
-</td>
-</tr>
-</table>
-
-### See it in action
-
-https://github.com/user-attachments/assets/fbb09af4-1e25-4e49-94d0-45b363278810
-
-## What Sets This Apart
-
-- **Live editing** — Edit documents while they're open in Word. No save-close-reopen cycle.
-- **Full undo** — Every AI action is a single Ctrl+Z. Made a mistake? Just undo it.
-- **Native tracked changes** — Real Word revisions with your name, not XML hacks.
-- **Threaded comments** — Add, reply, resolve, and delete comments like a human reviewer.
-- **Layout diagnostics** — Detects formatting problems before they become print disasters.
-- **Equations & cross-references** — Insert math formulas and auto-updating references.
-- **124 tools** — The most comprehensive Word MCP server available.
-
-## Quick Start
-
-```bash
-pip install word-mcp-live
-```
-
-Or install from source:
-
-```bash
-git clone https://github.com/ykarapazar/word-mcp-live.git
-cd word-mcp-live
-pip install -e .
-```
-
-## Client Installation
-
-<details open>
-<summary><b>Claude Desktop</b></summary>
-
-Add to your `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "word": {
-      "command": "uvx",
-      "args": ["word-mcp-live"],
-      "env": {
-        "MCP_AUTHOR": "Your Name",
-        "MCP_AUTHOR_INITIALS": "YN"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>Claude Code</b></summary>
-
-Add to your `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "word": {
-      "command": "uvx",
-      "args": ["word-mcp-live"],
-      "env": {
-        "MCP_AUTHOR": "Your Name",
-        "MCP_AUTHOR_INITIALS": "YN"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>Cursor</b></summary>
-
-**One-click:** Click the install button at the top of this page.
-
-**Manual:** Add to `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "word": {
-      "command": "uvx",
-      "args": ["word-mcp-live"],
-      "env": {
-        "MCP_AUTHOR": "Your Name",
-        "MCP_AUTHOR_INITIALS": "YN"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>VS Code / Copilot</b></summary>
-
-**One-click:** [Install in VS Code](vscode:mcp/install?%7B%22name%22%3A%20%22word%22%2C%20%22command%22%3A%20%22uvx%22%2C%20%22args%22%3A%20%5B%22word-mcp-live%22%5D%7D)
-
-**Manual:** Add to your VS Code `settings.json`:
-
-```json
-{
-  "mcp": {
-    "servers": {
-      "word": {
-        "command": "uvx",
-        "args": ["word-mcp-live"],
-        "env": {
-          "MCP_AUTHOR": "Your Name",
-          "MCP_AUTHOR_INITIALS": "YN"
-        }
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>Windsurf</b></summary>
-
-Add to `~/.codeium/windsurf/mcp_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "word": {
-      "command": "uvx",
-      "args": ["word-mcp-live"],
-      "env": {
-        "MCP_AUTHOR": "Your Name",
-        "MCP_AUTHOR_INITIALS": "YN"
-      }
-    }
-  }
-}
-```
-
-</details>
-
-<details>
-<summary><b>Docker</b></summary>
-
-```json
-{
-  "mcpServers": {
-    "word": {
-      "command": "docker",
-      "args": ["run", "-i", "--rm", "ghcr.io/ykarapazar/word-mcp-live"],
-      "env": {
-        "MCP_AUTHOR": "Your Name",
-        "MCP_AUTHOR_INITIALS": "YN"
-      }
-    }
-  }
-}
-```
-
-> Note: Docker mode supports cross-platform tools only. Live editing requires a native Windows install.
-
-</details>
-
-> **`MCP_AUTHOR`** sets your name on tracked changes and comments (default: `"Author"`). **`MCP_AUTHOR_INITIALS`** sets comment initials.
-
-## Two Modes
-
-|  | Works everywhere | Live editing (Word open) |
+| Layer | Module | What it owns |
 |---|---|---|
-| **What it does** | Create and edit saved .docx files | Edit documents live while you work in Word |
-| **Platform** | Windows, macOS, Linux | Windows (COM) and macOS (JXA) |
-| **Undo** | File-level saves | Per-action Ctrl+Z (Windows); per-operation undo (macOS) |
-| **Best for** | Batch processing, document generation | Interactive editing, formatting, review |
+| Package | `package` | Opening a `.docx`, reaching its parts and stories, saving it atomically. Content types and `.rels` are delegated to `docx.opc` rather than hand-rolled. |
+| Text model | `textmodel` | What a paragraph *shows*, and where each character sits. The single definition of a character offset. |
+| Ranges | `ranges` | The only layer that writes text: split, delete, insert, replace over `[start, end)`. |
+| Formatting | `format` | Writes `w:rPr` onto the runs a range already resolved to — property by property, never by rebuilding runs. |
 
-Both modes work together. The AI picks the right one for the task.
+Above them sit the modules that answer a specific question, each on top of that same base:
 
-### macOS Live Editing (New in v1.5.0)
+- `find` — where a string occurs, searched on the visible text of each paragraph.
+- `locators` — resolving a stateless locator to a place in the document.
+- `inspect` — what is in this document, and how do I name it.
+- `revisions` — recording, listing, accepting and rejecting `w:ins` / `w:del`.
+- `styles`, `theme`, `effective` — what a style says, what the theme resolves to, and what
+  a reader actually sees once both are applied.
+- `numbering` — list definitions in `numbering.xml`, and the `w:numPr` that points at them.
+- `table_styles` — applying and clearing an existing table style, with its `w:tblLook` mask.
+- `merge` — appending one package into another by importing elements, not text.
 
-Live tools now work on macOS via JavaScript for Automation (JXA). Same tool names, same parameters — the server detects your platform and uses the right automation backend.
+Three small modules are shared throughout: `xmlns` (the namespace table and `qn()`), `ids`
+(allocating the identifiers OOXML requires to be unique), and `errors` (the typed exception
+family).
 
-| Feature | Windows | macOS |
-|---------|---------|-------|
-| Text read/write/find/replace | COM | JXA |
-| Formatting (bold, font, style) | COM | JXA |
-| Track changes & revisions | COM | JXA |
-| Comments (add, delete, list) | COM | JXA |
-| Tables (read, write, add rows) | COM | JXA |
-| Page layout, headers, bookmarks | COM | JXA |
-| Equations, cross-references | COM | JXA |
-| Threaded comment replies | COM | Not available |
-| Comment resolve/unresolve | COM | Not available |
-| Undo history inspection | COM | Not available |
-| Watermarks | COM | Not available |
+### Text policy
 
-## Configuration
+One decision runs through the whole engine: the offset `0` of a paragraph means the same
+thing in `find`, in `ranges`, in a locator's `expect_text` and in a `changes` report,
+because exactly one module decides which characters exist. `textmodel` classifies every
+element it meets into one of four buckets:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MCP_AUTHOR` | `"Author"` | Author name for tracked changes and comments |
-| `MCP_AUTHOR_INITIALS` | `""` | Author initials for comments |
-| `MCP_TRANSPORT` | `stdio` | Transport type: `stdio`, `sse`, or `streamable-http` |
-| `MCP_HOST` | `0.0.0.0` | Host to bind (for SSE/HTTP transports) |
-| `MCP_PORT` | `8000` | Port to bind (for SSE/HTTP transports) |
+- **skipped** — property containers (`w:pPr`, `w:rPr`, `w:sdtPr`, …) carry formatting, not
+  content.
+- **visible** — text a reader sees, including runs wrapped in `w:hyperlink`, `w:ins`,
+  `w:sdt` or `w:fldSimple`, which `paragraph.text` silently drops.
+- **hidden** — text under a tracked deletion, and field instructions: present in the XML,
+  not part of what the document reads.
+- **opaque / markers** — images, field characters, note and comment references, bookmark
+  boundaries: zero-width positions that carry no character but that a range must not cut
+  through.
 
-For remote deployment, see [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md).
+### Errors
 
-## Example Prompts
+Every deliberate failure derives from `EngineError`, so one `except` clause catches the
+family. Operating-system failures are *not* wrapped: a missing file is still a
+`FileNotFoundError`. A locator failure carries one of four codes — `invalid`, `not_found`,
+`ambiguous`, `stale_anchor` — and a refused range carries a reason such as
+`opaque-content`, `empty-range` or `unsplittable-range`. Callers branch on the code; humans
+read the message, which names the closest candidates when there are any.
 
-Just tell the AI what you want in plain language:
+## The three tool families
 
-```
-"Draft a contract with tracked changes so my colleague can review"
-"Format all headings as Cambria 13pt bold and add automatic numbering"
-"Add a comment on paragraph 3 asking about the deadline"
-"Find every mention of 'ABC Corp' and replace with 'XYZ Ltd' as a tracked change"
-"Set the page to A4 landscape with 2cm margins"
-"Insert a table of contents based on the document headings"
-"Add page numbers in the footer and our company name in the header"
-"Insert a cross-reference to Heading 2 in paragraph 5"
-```
+`word_document_server/tools/platforms.py` is the single source of truth for which platforms
+each tool runs on. It feeds [TOOLS.md](TOOLS.md), the counts below, and the
+`doc_capabilities` tool.
 
-## Usage Examples
+### 1. Cross-platform document tools
 
-### Example 1: Read a document (cross-platform)
+The historical python-docx tools — create, format, tables, comments, footnotes, tracked
+changes, layout, protection. They work on a **closed** file, on any OS.
 
-**Tool call:** `get_document_text`
+These have been migrated onto the engine. The invariant held across that migration is on
+their **names, parameters and return formats**: a client calling `format_text` or
+`search_and_replace` calls it exactly as before. It is not a promise that nothing
+changed — a handful of behaviours were deliberately fixed or tightened, and each one is
+listed under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Read it before upgrading.
+
+### 2. The `doc_*` semantic surface
+
+Fifteen tools designed for an agent rather than for a script. They share one addressing
+model, one report shape, and a dry-run mode.
+
+**Locators.** A locator is a dict naming exactly one of five forms:
+
+| Form | Example |
+|---|---|
+| `paragraph` | `{"paragraph": 12}` |
+| `find` | `{"find": "ABC Corporation", "occurrence": 2}` |
+| `bookmark` | `{"bookmark": "signature_block"}` |
+| `heading` | `{"heading": "Schedule A"}` |
+| `table` | `{"table": 0, "row": 1, "col": 2, "paragraph": 0}` |
+
+Two optional keys work on every form. `story` selects a header, a footer, the footnotes
+part and so on (`{"find": "Confidential", "story": "header1"}`); it defaults to the main
+document. `expect_text` is what the caller believes is there — an exact text or a prefix.
+If it does not match, the call fails as `stale_anchor` rather than editing the wrong
+paragraph, and the error lists the paragraphs that *do* carry that text so the caller can
+re-aim without re-reading the document.
+
+**Report shape.** Every call that returns answers with at least four keys:
+
 ```json
-{ "filename": "C:/Documents/report.docx" }
-```
-**Expected output:**
-```json
-{
-  "status": "success",
-  "paragraphs": [
-    {"index": 0, "text": "Quarterly Report", "style": "Heading 1"},
-    {"index": 1, "text": "Revenue increased by 15% compared to Q3.", "style": "Normal"},
-    {"index": 2, "text": "Key Metrics", "style": "Heading 2"}
-  ],
-  "total_paragraphs": 3
-}
+{ "status": "ok", "dry_run": false, "changes": [], "warnings": [] }
 ```
 
-### Example 2: Live editing with tracked changes (Windows)
+`changes` holds one entry per paragraph touched — `{story, paragraph, before, after}` —
+and tools add their own keys on top (`matches`, `saved`, `runs`, …). A failure answers
+with a different, equally uniform shape:
 
-**Tool call:** `word_live_replace_text`
 ```json
-{
-  "filename": "report.docx",
-  "find_text": "ABC Corporation",
-  "replace_text": "XYZ Ltd",
-  "match_case": true,
-  "replace_all": true,
-  "track_changes": true
-}
+{ "status": "error", "code": "stale_anchor", "message": "…" }
 ```
-**Expected output:**
-```json
-{
-  "status": "success",
-  "replacements": 4,
-  "message": "Replaced 4 occurrences (tracked changes enabled)"
-}
-```
-The replacements appear as tracked changes in Word with strikethrough on "ABC Corporation" and underline on "XYZ Ltd".
 
-### Example 3: Add a comment anchored to text (cross-platform)
+**The tools.**
 
-**Tool call:** `add_comment`
-```json
-{
-  "filename": "C:/Documents/contract.docx",
-  "target_text": "payment within 30 days",
-  "comment_text": "Should we extend this to 45 days?",
-  "author": "Jane Smith"
-}
-```
-**Expected output:**
-```json
-{
-  "status": "success",
-  "message": "Comment added by Jane Smith on 'payment within 30 days'"
-}
-```
-The comment appears in Word's Review panel, anchored to the specified text.
+- Reading: `doc_inspect`, `doc_find`, `doc_get_effective_format`, `doc_list_styles`,
+  `doc_get_style`, `doc_find_style_usage`, `doc_capabilities`
+- Writing: `doc_edit_text`, `doc_format_range`, `doc_apply_list`, `doc_apply_table_style`,
+  `doc_create_style`, `doc_update_style`, `doc_delete_style`
+- Batching: `doc_apply_edits` applies a sequence of text and formatting edits as one
+  all-or-nothing unit — either the whole batch lands or the file is left as it was.
 
-## Tool Reference
+`doc_capabilities` reports what *this* process on *this* machine can reach: the platform,
+whether LibreOffice is on `PATH` (the `convert_to_pdf` fallback outside Windows), and the
+tool family counts. It does not launch Word, so it cannot tell you whether Word is
+installed — only a live tool call can.
+
+### 3. Live tools (Word automation)
+
+`word_live_*` and `word_screen_capture` drive a Word application that is already running,
+so edits appear in the open document as you watch. On Windows every destructive live tool
+is wrapped in an undo record, which makes each call a single Ctrl+Z. They are the one
+family that is not cross-platform: COM on Windows, JavaScript for Automation on macOS. A
+tool counts as macOS-capable only when its macOS branch reaches a real implementation, not
+a stub — the exact split is in [TOOLS.md](TOOLS.md).
 
 <!-- tool-counts:start -->
 **135 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
@@ -347,50 +181,247 @@ The comment appears in Word's Review panel, anchored to the specified text.
 | macOS Live (JXA automation) | 31 (of the 45 live tools) |
 <!-- tool-counts:end -->
 
-## Requirements
+## A `doc_*` call, end to end
 
-- **Python 3.11+**
-- `python-docx`, `fastmcp`, `msoffcrypto-tool` (installed automatically)
-- **Windows Live tools:** Windows 10/11 + Microsoft Word + `pywin32` (installed automatically)
-- **macOS Live tools:** macOS + Microsoft Word for Mac (uses built-in JXA — no extra dependencies)
+Given a document whose paragraph 1 reads
+`This agreement is entered into by ABC Corporation and the client, effective 1 January 2026.`
+with `ABC Corporation` in bold.
 
-> The cross-platform tools work without Word installed — only python-docx is needed.
+**Find it first.** `doc_find` with `{"filename": "agreement.docx", "pattern": "ABC Corporation"}`
+(it also takes `regex`, `case`, `whole_word`, `stories` and `max_results`):
 
-## Contributing
+```json
+{
+  "status": "ok",
+  "dry_run": false,
+  "changes": [],
+  "warnings": [],
+  "matches": [
+    {
+      "story": "document",
+      "paragraph": 1,
+      "start": 34,
+      "end": 49,
+      "text": "ABC Corporation",
+      "context": "This agreement is entered into by ABC Corporation and the client, effective 1 January 202"
+    },
+    {
+      "story": "document",
+      "paragraph": 2,
+      "start": 0,
+      "end": 15,
+      "text": "ABC Corporation",
+      "context": "ABC Corporation shall deliver the services described in"
+    }
+  ],
+  "truncated": false
+}
+```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and how to add new tools.
+**Then rehearse the edit.** `doc_edit_text` with
+`{"filename": "agreement.docx", "locator": {"find": "ABC Corporation", "occurrence": 1}, "action": "replace", "text": "XYZ Ltd", "dry_run": true}`:
 
-Found a bug? [Open an issue](https://github.com/ykarapazar/word-mcp-live/issues/new?template=bug_report.md).
-Have an idea? [Request a feature](https://github.com/ykarapazar/word-mcp-live/issues/new?template=feature_request.md).
+```json
+{
+  "status": "ok",
+  "dry_run": true,
+  "changes": [
+    {
+      "story": "document",
+      "paragraph": 1,
+      "before": "This agreement is entered into by ABC Corporation and the client, effective 1 January 2026.",
+      "after": "This agreement is entered into by XYZ Ltd and the client, effective 1 January 2026."
+    }
+  ],
+  "warnings": [],
+  "saved": false
+}
+```
 
-## Acknowledgments
+Nothing was written (`saved: false`). Dropping `dry_run` performs the same edit for real —
+and the replacement keeps the bold, because `ranges` edits the runs in place rather than
+rebuilding them.
 
-Built on top of [GongRzhe/Office-Word-MCP-Server](https://github.com/GongRzhe/Office-Word-MCP-Server) by GongRzhe (MIT License).
+**And when the document has moved under you**, `expect_text` stops the call instead of
+letting it land somewhere wrong:
 
-Additional libraries: [python-docx](https://python-docx.readthedocs.io/) &middot; [FastMCP](https://github.com/modelcontextprotocol/python-sdk) &middot; [pywin32](https://github.com/mhammond/pywin32)
+```json
+{
+  "status": "error",
+  "code": "stale_anchor",
+  "message": "expected 'This agreement was signed by' at paragraph 1 of story 'document', found 'This agreement is entered into by ABC Co...'; no paragraph of that story carries that text"
+}
+```
+
+## Fidelity guarantees
+
+Each of these is enforced by the engine and covered by tests under `tests/engine/` and
+`tests/tools/`:
+
+- **Nothing outside the range changes.** Text and formatting outside `[start, end)` come
+  out as they went in, including on randomised ranges over the full fixture set.
+- **Parts that were not targeted are identical.** Editing the body does not perturb the
+  headers, the footnotes, the theme or the media.
+- **Bookmarks and comment ranges survive.** Markers inside a deleted range are moved to
+  where the range started, never dropped, so the annotations that framed the text still
+  frame something.
+- **Containers are never removed.** Only `w:r` elements are deleted, and only when the
+  range covers them whole. An emptied `w:hyperlink` keeps its `r:id`, an emptied `w:ins`
+  keeps the revision it stands for, an emptied `w:sdt` keeps the content control.
+- **Fields are atomic.** A range that strictly contains a field character, an image, an
+  embedded object or a note reference is refused (`opaque-content`) rather than approximated.
+- **`w:del` is never rewritten.** Tracked deletions are structure to preserve; only
+  `revisions` accepts or rejects them, and it refuses as a whole rather than applying in
+  part.
+- **Annotation ids are unique.** Every id is allocated against the whole package, not the
+  part being edited, so a new bookmark never shadows an existing one.
+- **Schema order is respected.** `w:rPr` and `w:pPr` are `xsd:sequence`: every property
+  this engine writes is inserted at its ECMA-376 rank, whatever order the caller listed
+  them in. Appending is never an option.
+- **Saving is atomic.** The destination is either the previous file or the complete new
+  one — never a truncated package.
+
+### Known gaps
+
+Deliberate, documented limits rather than bugs to discover:
+
+- **Nested fields.** In a nested complex field, the inner cached result sits inside the
+  outer instruction and is visible text. Both spans are reported so a range can refuse to
+  cut either, but the two are not disentangled further.
+- **The footnote and endnote tools use a different index space.** The five tools in
+  `tools/footnote_tools.py` read `paragraph_index` against python-docx's direct body
+  paragraphs, while every other public `paragraph_index` counts the paragraphs of a block
+  content control (`w:sdt`) too. Composing `find_text_in_document` with
+  `add_footnote_to_document` can therefore aim at the wrong paragraph in a document that
+  holds a block `w:sdt` — insert a table of contents and this becomes reachable.
+- **Theme tint and shade are a rendering hint.** `w:themeTint` / `w:themeShade` scale
+  luminance in HSL; the arithmetic is floating point here and fixed point in Word, so a
+  resolved channel may land one or two units from the value Word caches. It is good enough
+  to tell an agent that a run is a dark blue, and it is **never written back** into the
+  document — the reference and its cached value stay the document's own business.
+- **Table styles are not resolved in `doc_get_effective_format`.** A table style's
+  contribution depends on conditional formatting (`w:tblStylePr`), which the effective
+  format report does not compute; the report says so rather than guessing.
+- **Behaviour changes in the historical tools** are listed under `[Unreleased]` in
+  [CHANGELOG.md](CHANGELOG.md).
+
+## Test harness
+
+Non-degradation is a claim that has to be measurable, so the test suite is built around
+instruments rather than around example files:
+
+- **Generated fixtures** (`tests/fixtures/builders.py`). Every fixture is built on demand
+  from the python-docx template plus hand-written XML fragments, with frozen ZIP
+  timestamps and literal ids, so `build_x() == build_x()` byte for byte. **No binary
+  fixture is ever committed.**
+- **Canonical snapshots** (`tests/support/snapshot.py`). Turns a package into a comparable
+  value using `zipfile` and `lxml` only — never python-docx, so it stays usable to
+  characterise python-docx itself. This is what lets a test state "nothing changed except
+  paragraph 4" and have it verified.
+- **Package validation** (`tests/support/package_check.py`). Checks relationships in both
+  directions: a `.rels` entry whose target part is gone, and a part still carrying an `r:`
+  reference whose relationship no longer exists.
+- **Characterization tests** (`tests/characterization/`) pin the behaviour of the existing
+  tools, including a no-op round trip, so a migration that changes something has to say so.
+- **LibreOffice is optional and never a source of truth.** It produces `.docx` fixtures
+  from committed `.fodt` sources and can confirm a document reopens without error. Tests
+  that need it are marked `libreoffice` and **skip** when `soffice` is missing. No test
+  requires Microsoft Word.
+
+```bash
+PATH="$HOME/.local/bin:$PATH" uv run pytest -q          # the suite
+PATH="$HOME/.local/bin:$PATH" uv run pytest -q -m "not libreoffice"
+bash scripts/check.sh                                   # sync + lint + tests
+```
+
+`scripts/gen_tools_md.py` generates [TOOLS.md](TOOLS.md) and the tool-count table above
+from the live server; `--check` fails if either has drifted. Note that `ruff` is configured
+to cover `word_document_server/engine/`, `tests/` and `scripts/` only — a green
+`ruff check .` says nothing about the older `tools/`, `core/` and `utils/` packages.
+
+## Installation
+
+This server runs from a clone. Python 3.11 or later.
+
+```bash
+git clone https://github.com/ykarapazar/word-mcp-live.git
+cd word-mcp-live
+uv sync            # or: pip install -e .
+```
+
+`python-docx`, `lxml`, `fastmcp` and `msoffcrypto-tool` are installed for you. `pywin32`
+and `Pillow` come along on Windows only, for the live tools. `uv` is typically installed
+under `~/.local/bin`; prefix commands with `PATH="$HOME/.local/bin:$PATH"` if that is not
+on your `PATH`.
+
+> The PyPI package named `word-mcp-live` is the upstream project this repository forked
+> from. It does not contain the OOXML engine or the `doc_*` tools described here. Install
+> from this clone.
+
+### MCP client configuration
+
+`pyproject.toml` declares the console entry point `word_mcp_server`. Point your client at
+it through `uv`, with the clone as the working directory:
+
+```json
+{
+  "mcpServers": {
+    "word": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/word-mcp-live", "word_mcp_server"],
+      "env": {
+        "MCP_AUTHOR": "Your Name",
+        "MCP_AUTHOR_INITIALS": "YN"
+      }
+    }
+  }
+}
+```
+
+This is the form used by Claude Desktop (`claude_desktop_config.json`), Claude Code
+(`.mcp.json`), Cursor (`~/.cursor/mcp.json`) and Windsurf; VS Code nests the same object
+under `"mcp": {"servers": {…}}`.
+
+### Environment variables
+
+| Variable | Default | Effect |
+|---|---|---|
+| `MCP_AUTHOR` | `"Author"` | Author recorded on tracked changes and comments (`defaults.py`). |
+| `MCP_AUTHOR_INITIALS` | `""` | Initials recorded on comments (`defaults.py`). |
+| `MCP_TRANSPORT` | `stdio` | `stdio`, `sse` or `streamable-http`; an unknown value falls back to `stdio` with a warning. |
+| `MCP_HOST` | `0.0.0.0` | Bind address, for the HTTP transports. |
+| `MCP_PORT` | `8000` | Bind port, for the HTTP transports. |
+
+For a hosted deployment, see [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md).
+
+## Documentation
+
+| | |
+|---|---|
+| [TOOLS.md](TOOLS.md) | Every tool, with its platforms and whether it writes. Generated. |
+| [CHANGELOG.md](CHANGELOG.md) | Release history, and the behaviour changes under `[Unreleased]`. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Development setup, project layout, adding a tool. |
+| [RENDER_DEPLOYMENT.md](RENDER_DEPLOYMENT.md) | Running the server over HTTP. |
+| [PRIVACY.md](PRIVACY.md) | Privacy policy. |
+| [LICENSE](LICENSE) | MIT. |
 
 ## Privacy
 
-This server runs entirely on your local machine. No data is collected, transmitted, or stored. See the full [Privacy Policy](PRIVACY.md).
+The server runs entirely on your machine and on the documents you point it at. Nothing is
+collected, transmitted or stored elsewhere. See [PRIVACY.md](PRIVACY.md).
 
-## Support
+## Acknowledgments
 
-- **Bug reports:** [Open an issue](https://github.com/ykarapazar/word-mcp-live/issues/new?template=bug_report.md)
-- **Feature requests:** [Request a feature](https://github.com/ykarapazar/word-mcp-live/issues/new?template=feature_request.md)
-- **Discussions:** [GitHub Discussions](https://github.com/ykarapazar/word-mcp-live/discussions)
+Built on [GongRzhe/Office-Word-MCP-Server](https://github.com/GongRzhe/Office-Word-MCP-Server)
+(MIT) and on [ykarapazar/word-mcp-live](https://github.com/ykarapazar/word-mcp-live), whose
+live-editing tools this repository keeps.
+
+Libraries: [python-docx](https://python-docx.readthedocs.io/) ·
+[lxml](https://lxml.de/) · [FastMCP](https://gofastmcp.com/) ·
+[pywin32](https://github.com/mhammond/pywin32)
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
-
-## Star History
-
-<a href="https://star-history.com/#ykarapazar/word-mcp-live&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ykarapazar/word-mcp-live&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ykarapazar/word-mcp-live&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=ykarapazar/word-mcp-live&type=Date" />
- </picture>
-</a>
+MIT — see [LICENSE](LICENSE).
 
 <!-- mcp-name: io.github.ykarapazar/word-mcp-live -->
