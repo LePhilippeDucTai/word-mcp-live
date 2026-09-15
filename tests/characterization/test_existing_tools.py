@@ -502,7 +502,14 @@ def test_insert_numbered_list_near_text_only_appends_at_the_target(combined_path
     assert "inserted after paragraph" in result
 
     after = snapshot(combined_path.read_bytes())
-    assert_unchanged_except(before, after, paragraphs=[n, n + 1])
+    # Since J05-P4 the tool allocates a list definition of its own instead of
+    # pointing the items at the hard-coded numId 1 or 2, which named whatever
+    # list the document happened to define there. The new definition is added to
+    # word/numbering.xml; no existing one is touched, which is what the
+    # numbering tests in tests/engine/test_numbering.py pin.
+    assert_unchanged_except(
+        before, after, paragraphs=[n, n + 1], parts=["word/numbering.xml"]
+    )
     assert validate_package(combined_path) == []
 
 

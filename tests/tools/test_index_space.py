@@ -205,6 +205,23 @@ def test_the_anchor_of_each_insert_near_text_is_the_one_find_text_reported(
     assert validate_package(path) == []
 
 
+def test_the_insert_line_reply_names_the_style_not_the_object(tmp_path) -> None:
+    """D-021: the tail of the reply is a style name, and it is the same every run.
+
+    With no `line_style`, the tool takes the style of the anchor and used to
+    interpolate the *style object*, whose repr carries the ``id()`` of that
+    call's instance: the same call on the same document answered a different
+    string every time, which no caller can match on and no test can pin.
+    """
+    first = _document_with_a_table_of_contents(tmp_path / "one.docx")
+    second = _document_with_a_table_of_contents(tmp_path / "two.docx")
+
+    replies = [_insert_line(path, _v2_index_of(path, ANCHOR)) for path in (first, second)]
+
+    assert replies[0].endswith("with style 'Normal'."), replies[0]
+    assert replies[0] == replies[1]
+
+
 # --------------------------------------------------------------------------------------
 # add_bookmark: the lower bound of the space
 # --------------------------------------------------------------------------------------
