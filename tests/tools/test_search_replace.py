@@ -176,7 +176,7 @@ def test_occurrence_overlapping_a_field_is_skipped_and_reported(fixture_docx):
 
     assert result == (
         "Replaced 1 occurrence(s) of 'Fixture: fields' with 'Fixture: champs'."
-        ", 1 skipped (inside fields)"
+        " 1 skipped (inside fields)."
     )
     texts = _texts(path)
     assert "Fixture: champs" in texts
@@ -191,7 +191,7 @@ def test_a_wholly_skipped_search_still_reports_the_skip(fixture_docx):
 
     result = _run(search_and_replace(str(path), "Page 1", "Page one"))
 
-    assert result == "No occurrences of 'Page 1' found., 1 skipped (inside fields)"
+    assert result == "No occurrences of 'Page 1' found. 1 skipped (inside fields)."
     assert path.read_bytes() == before, "nothing is saved when nothing is replaced"
 
 
