@@ -77,7 +77,7 @@ Updated 2026-09-15 · s8 · base main (fusionnée depuis v2-semantic-engine à l
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
 | J06-P1 | Audit documentaire | T3 | 🔄 | 1 | |
-| J06-P2 | Comparaison sémantique | T4 | 🔄 | 1 | |
+| J06-P2 | Comparaison sémantique | T4 | ✅ | 1 | déplacement pur de `snapshot`/`diff` vers `engine/compare.py`, `tests/support/snapshot.py` réexporte (aucune API changée, la garde `is_empty()` tient) ; `doc_compare` ; 56 passed sur l'acceptation rejouée sur la base ; enregistré par l'orchestrateur après merge (`_V2_TOOLS`, docstring « fifteen » → « sixteen », TOOLS.md/README régénérés) : 135 → 136 outils, 16 `doc_*` |
 | J06-P3 | Scénarios de bout en bout et documentation | T4 | ⬜ | 0 | |
 | J06-P4 | Review J06 | T2 | ⬜ | 0 | |
 
