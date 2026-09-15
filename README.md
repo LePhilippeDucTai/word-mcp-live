@@ -337,12 +337,12 @@ The comment appears in Word's Review panel, anchored to the specified text.
 ## Tool Reference
 
 <!-- tool-counts:start -->
-**132 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
+**135 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
 
 | Category | Count |
 |----------|-------|
 | Cross-platform (python-docx) | 75 |
-| V2 semantic engine (`doc_*`, python-docx) | 12 |
+| V2 semantic engine (`doc_*`, python-docx) | 15 |
 | Windows Live (COM automation) | 45 |
 | macOS Live (JXA automation) | 31 (of the 45 live tools) |
 <!-- tool-counts:end -->
