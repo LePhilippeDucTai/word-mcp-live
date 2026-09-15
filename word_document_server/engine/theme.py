@@ -46,7 +46,7 @@ from __future__ import annotations
 import colorsys
 import string
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 
 from lxml import etree
@@ -316,7 +316,12 @@ class Theme:
     major: ThemeFonts
     minor: ThemeFonts
     colors: Mapping[str, str]
-    color_map: Mapping[str, str] = DEFAULT_COLOR_MAP
+    # `default_factory`, not a plain default: Python 3.11's dataclasses reject an
+    # unhashable default, and a `MappingProxyType` is unhashable, so the plain
+    # form raised `ValueError: mutable default <class 'mappingproxy'>` at import
+    # time on 3.11 while working on 3.12+. The factory hands back the very same
+    # shared proxy -- no copy, and it stays read-only.
+    color_map: Mapping[str, str] = field(default_factory=lambda: DEFAULT_COLOR_MAP)
 
     def scheme_slot(self, theme_color: str) -> str | None:
         """The ``a:clrScheme`` slot a ``w:themeColor`` value names.

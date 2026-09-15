@@ -208,12 +208,12 @@ def main() -> int:
     tools = _load_tools()
     tools_md = render_tools_md(tools)
     readme_snippet = render_readme_counts(tools)
-    current_readme = README_PATH.read_text()
+    current_readme = README_PATH.read_text(encoding="utf-8")
     new_readme = apply_readme_counts(current_readme, readme_snippet)
 
     if args.check:
         drifted = []
-        if not TOOLS_MD_PATH.exists() or TOOLS_MD_PATH.read_text() != tools_md:
+        if not TOOLS_MD_PATH.exists() or TOOLS_MD_PATH.read_text(encoding="utf-8") != tools_md:
             drifted.append("TOOLS.md")
         if current_readme != new_readme:
             drifted.append("README.md")
@@ -223,8 +223,8 @@ def main() -> int:
         print("TOOLS.md and README.md are up to date.")
         return 0
 
-    TOOLS_MD_PATH.write_text(tools_md)
-    README_PATH.write_text(new_readme)
+    TOOLS_MD_PATH.write_text(tools_md, encoding="utf-8")
+    README_PATH.write_text(new_readme, encoding="utf-8")
     print(f"Wrote {TOOLS_MD_PATH} and updated tool counts in {README_PATH}.")
     return 0
 

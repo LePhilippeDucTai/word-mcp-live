@@ -11,6 +11,8 @@ import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlparse
+from urllib.request import url2pathname
 
 import pytest
 
@@ -23,6 +25,17 @@ from tests.support.libreoffice import (
 )
 
 _FIXTURE_NAMES = ["rich", "tables_lists", "notes_fields"]
+
+
+def _path_from_uri(uri: str) -> Path:
+    """The path a `file://` URI names, on both path families.
+
+    `convert` builds these with `Path.as_uri()`, which on Windows yields
+    `file:///C:/...`. Stripping the `file://` prefix would leave `/C:/...`,
+    which is not a path there -- and an `assert not ....exists()` on it would
+    pass for the wrong reason, never able to fail.
+    """
+    return Path(url2pathname(urlparse(uri).path))
 
 
 @pytest.fixture(scope="session")
@@ -71,7 +84,7 @@ def _fake_run_that_writes_output(log):
         profile_args = [a for a in argv if a.startswith("-env:UserInstallation=")]
         assert len(profile_args) == 1
         profile_uri = profile_args[0].removeprefix("-env:UserInstallation=")
-        profile_path = Path(profile_uri.removeprefix("file://"))
+        profile_path = _path_from_uri(profile_uri)
         assert profile_path.is_dir()
         log.append(profile_uri)
 
@@ -92,7 +105,7 @@ def test_convert_gives_each_call_its_own_profile(monkeypatch, tmp_path):
     )
 
     src = tmp_path / "source.fodt"
-    src.write_text("fake source")
+    src.write_text("fake source", encoding="utf-8")
     outdirs = [tmp_path / f"out{i}" for i in range(3)]
 
     with ThreadPoolExecutor(max_workers=3) as pool:
@@ -101,7 +114,7 @@ def test_convert_gives_each_call_its_own_profile(monkeypatch, tmp_path):
     assert len(results) == 3
     assert len(set(log)) == 3
     for profile_uri in log:
-        profile_path = Path(profile_uri.removeprefix("file://"))
+        profile_path = _path_from_uri(profile_uri)
         assert not profile_path.exists()
 
 
@@ -113,14 +126,14 @@ def test_convert_removes_its_profile_when_soffice_writes_nothing(monkeypatch, tm
         profile_uri = next(
             a for a in argv if a.startswith("-env:UserInstallation=")
         ).removeprefix("-env:UserInstallation=")
-        seen_profiles.append(Path(profile_uri.removeprefix("file://")))
+        seen_profiles.append(_path_from_uri(profile_uri))
         # Writes nothing, mimicking soffice attaching to another instance.
         return subprocess.CompletedProcess(argv, returncode=0)
 
     monkeypatch.setattr("tests.support.libreoffice.subprocess.run", _run)
 
     src = tmp_path / "source.fodt"
-    src.write_text("fake source")
+    src.write_text("fake source", encoding="utf-8")
 
     with pytest.raises(RuntimeError, match="did not produce"):
         convert(src, "docx", tmp_path / "out")

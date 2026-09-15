@@ -49,7 +49,7 @@ def test_check_flag_passes_on_the_committed_docs():
 def test_readme_keeps_its_tool_count_markers():
     """`apply_readme_counts` needs both markers; losing one should fail loudly, not silently."""
     gen_tools_md = _load_gen_tools_md()
-    readme_text = (REPO_ROOT / "README.md").read_text()
+    readme_text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     assert gen_tools_md.README_MARKER_START in readme_text
     assert gen_tools_md.README_MARKER_END in readme_text
     assert readme_text.index(gen_tools_md.README_MARKER_START) < readme_text.index(

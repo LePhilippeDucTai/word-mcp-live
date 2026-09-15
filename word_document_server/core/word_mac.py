@@ -590,6 +590,24 @@ JSON.stringify({{replaced: result, find: "{escaped_find}", replaceWith: "{escape
 """)
 
 
+#: JXA that unbolds the paragraph marks inside `r`, so bolding a range does not
+#: bleed into the next paragraph. Kept out of the f-string in `mac_format_text`
+#: on purpose: nesting a triple-quoted literal -- and backslashes -- inside an
+#: f-string expression is PEP 701 syntax, valid from Python 3.12 on and a
+#: `SyntaxError` on 3.11, which this package still supports.
+_UNBOLD_PARAGRAPH_MARKS_JS = """
+    var rStart = r.startOfContent();
+    var rEnd = r.endOfContent();
+    var txt = r.content();
+    for (var pi = 0; pi < txt.length; pi++) {
+        if (txt[pi] === '\\r') {
+            var pm = d.createRange({start: rStart + pi, end: rStart + pi + 1});
+            pm.bold = false;
+        }
+    }
+    """
+
+
 def mac_format_text(
     filename: str = None,
     start: int = None,
@@ -666,17 +684,7 @@ try {{
     {range_js}
     {fmt_js}
     // Prevent bold bleed: unbold paragraph marks within the range
-    {"" if bold is not True else """
-    var rStart = r.startOfContent();
-    var rEnd = r.endOfContent();
-    var txt = r.content();
-    for (var pi = 0; pi < txt.length; pi++) {
-        if (txt[pi] === '\\r') {
-            var pm = d.createRange({start: rStart + pi, end: rStart + pi + 1});
-            pm.bold = false;
-        }
-    }
-    """}
+    {_UNBOLD_PARAGRAPH_MARKS_JS if bold is True else ""}
 }} finally {{
     d.trackRevisions = prevTracking;
 }}
@@ -1462,6 +1470,17 @@ JSON.stringify({{applied: true, type: "multilevel", h1: counts[1], h2: counts[2]
 
         elif heading_texts:
             texts_json = json.dumps(heading_texts)
+            # Built here rather than inline below: an f-string nested inside an
+            # f-string expression is PEP 701 syntax, valid from Python 3.12 on
+            # and a SyntaxError on 3.11. Same shape as the branch above.
+            color_block = ""
+            if font_color:
+                color_block = f"""
+var fc = {_color_to_mac_rgb(font_color)};
+for (var i = firstH1; i < paras.length; i++) {{
+    try {{ paras[i].textObject.fontObject.color = fc; }} catch(e) {{}}
+}}
+"""
             return _run_jxa(f"""
 var app = Application("Microsoft Word");
 {finder}
@@ -1501,12 +1520,7 @@ for (var i = firstH1; i < paras.length; i++) {{
         h2Applied++;
     }}
 }}
-{"" if not font_color else f"""
-var fc = {_color_to_mac_rgb(font_color)};
-for (var i = firstH1; i < paras.length; i++) {{
-    try {{ paras[i].textObject.fontObject.color = fc; }} catch(e) {{}}
-}}
-"""}
+{color_block}
 JSON.stringify({{applied: true, type: "multilevel", h1: h1Applied, h2: h2Applied}});
 """, timeout=180)
         else:
