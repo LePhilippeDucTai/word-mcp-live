@@ -19,8 +19,7 @@ import asyncio
 import json
 
 from word_document_server.core import word_mac
-from word_document_server.tools import live_layout_tools
-from word_document_server.tools import live_tools
+from word_document_server.tools import live_layout_tools, live_tools
 
 
 class _JXACapture:
