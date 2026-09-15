@@ -21,6 +21,28 @@ WD_STORY = 6
 # We use 30000 as safe margin below 2^15-1 = 32767.
 _INSERT_CHUNK_SIZE = 30000
 
+# WdColorIndex integer -> JXA highlight color name, for mac_format_text
+# (which expects a color name string, not the Windows COM integer index).
+_HIGHLIGHT_COLOR_NAMES = {
+    0: "none",
+    1: "black",
+    2: "blue",
+    3: "turquoise",
+    4: "bright green",
+    5: "pink",
+    6: "red",
+    7: "yellow",
+    8: "white",
+    9: "dark blue",
+    10: "teal",
+    11: "green",
+    12: "violet",
+    13: "dark red",
+    14: "dark yellow",
+    15: "gray 50",
+    16: "gray 25",
+}
+
 
 async def word_live_insert_text(
     filename: str = None,
@@ -192,7 +214,10 @@ async def word_live_format_text(
     """
     if _MAC_AVAILABLE:
         from word_document_server.core.word_mac import mac_format_text
-        return mac_format_text(filename=filename, start=start, end=end, start_paragraph=start_paragraph, end_paragraph=end_paragraph, bold=bold, italic=italic, underline=underline, strikethrough=strikethrough, font_name=font_name, font_size=font_size, font_color=font_color, highlight_color=highlight_color, style_name=style_name, paragraph_alignment=paragraph_alignment, page_break_before=page_break_before, preserve_direct_formatting=preserve_direct_formatting, track_changes=track_changes)
+        mac_highlight_color = (
+            _HIGHLIGHT_COLOR_NAMES.get(highlight_color) if highlight_color is not None else None
+        )
+        return mac_format_text(filename=filename, start=start, end=end, start_paragraph=start_paragraph, end_paragraph=end_paragraph, bold=bold, italic=italic, underline=underline, strikethrough=strikethrough, font_name=font_name, font_size=font_size, font_color=font_color, highlight_color=mac_highlight_color, style_name=style_name, paragraph_alignment=paragraph_alignment, page_break_before=page_break_before, preserve_direct_formatting=preserve_direct_formatting, track_changes=track_changes)
 
     if sys.platform != "win32":
         return json.dumps({"error": "Live editing is only available on Windows"})
@@ -533,7 +558,7 @@ async def word_live_setup_heading_numbering(
     h2_space_after: float = None,
     line_spacing: float = None,
 ) -> str:
-    """[Windows only] Set up auto-numbered headings with multilevel list (1. / 1.1).
+    r"""[Windows only] Set up auto-numbered headings with multilevel list (1. / 1.1).
 
     Creates a multilevel list template linked to Heading 1 and Heading 2 styles.
     Default formats: Level 1 = "%1." (produces "1."), Level 2 = "%1.%2" (produces "1.1").
