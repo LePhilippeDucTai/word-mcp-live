@@ -101,6 +101,7 @@ from word_document_server.engine.locators import Target
 from word_document_server.engine.package import DocxPackage
 from word_document_server.engine.styles import (
     STYLES_PARTNAME,
+    _toggle_value,
     decode_ppr,
     decode_rpr,
     get_style,
@@ -189,9 +190,6 @@ PARAGRAPH_PROPERTIES: tuple[str, ...] = (
 #: Properties whose decoded value is a ``{"value", "theme"}`` pair, and how to
 #: resolve the reference.
 _THEMED_FONTS = ("font", "font_east_asia", "font_cs")
-
-#: What ``w:val`` spells when a toggle means "off".  Word writes all four.
-_OFF = frozenset({"0", "false", "off"})
 
 _W_STYLES = qn("w:styles")
 _W_STYLE = qn("w:style")
@@ -286,14 +284,20 @@ def _style_elements(pkg: DocxPackage) -> dict[str, etree._Element]:
 
 
 def _extra_toggles(properties: etree._Element | None) -> dict[str, bool]:
-    """The six §17.7.3 toggles ``decode_rpr`` does not cover, from a ``w:rPr``."""
+    """The six §17.7.3 toggles ``decode_rpr`` does not cover, from a ``w:rPr``.
+
+    Reads through :func:`~word_document_server.engine.styles._toggle_value`,
+    the same three-state decoder the model toggles use, so the eleven of
+    §17.7.3 share one vocabulary rather than two independently maintained
+    "what spells off" lists.
+    """
     if properties is None:
         return {}
     found: dict[str, bool] = {}
     for name, tag in EXTRA_RUN_TOGGLES.items():
-        child = properties.find(tag)
-        if child is not None:
-            found[name] = child.get(_W_VAL) not in _OFF
+        value = _toggle_value(properties, tag)
+        if value is not None:
+            found[name] = value
     return found
 
 

@@ -17,7 +17,7 @@ from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 
 from word_document_server.core.tables import run_patch
-from word_document_server.engine.errors import LocatorError
+from word_document_server.engine.errors import EngineError, LocatorError
 from word_document_server.engine.styles import create_style as engine_create_style
 from word_document_server.engine.styles import style_info
 
@@ -74,41 +74,58 @@ def ensure_heading_style(doc):
     Nothing is touched when the document already defines the style -- which is
     the usual case, since Word's own template defines all nine.
 
+    This is best-effort, by contract: a style sheet without a ``Normal`` style
+    (or without a style sheet at all) cannot support a ``basedOn Normal`` or
+    ``next Normal`` reference, so those two references are left out and the
+    rest of the definition -- the outline level, ``qFormat``, the
+    ``uiPriority``, ``keepNext``, the spacing, the bold run and its size -- is
+    still written; a level the engine still refuses for any other reason (no
+    style part to write to, a name already taken by something else) is simply
+    skipped rather than failing every level after it.
+
     Args:
         doc: Document object, or a
             :class:`~word_document_server.engine.package.DocxPackage`
     """
+    try:
+        style_info(doc, "Normal")
+        has_normal = True
+    except EngineError:
+        has_normal = False
+
     for level, (style_id, name) in _HEADING_IDS.items():
+        spec = {
+            "name": name,
+            "style_id": style_id,
+            "family": "paragraph",
+            "builtin": True,
+            "q_format": True,
+            "ui_priority": _HEADING_PRIORITY,
+            "run_props": {
+                "bold": True,
+                "size_pt": _HEADING_SIZES.get(level, _HEADING_SIZE),
+            },
+            "paragraph_props": {
+                "outline_level": level - 1,
+                "keep_next": True,
+                "keep_lines": True,
+                "spacing": {"before": _HEADING_SPACE_BEFORE, "after": 0},
+            },
+        }
+        if has_normal:
+            spec["based_on"] = "Normal"
+            spec["next"] = "Normal"
         try:
-            engine_create_style(
-                doc,
-                {
-                    "name": name,
-                    "style_id": style_id,
-                    "family": "paragraph",
-                    "based_on": "Normal",
-                    "next": "Normal",
-                    "builtin": True,
-                    "q_format": True,
-                    "ui_priority": _HEADING_PRIORITY,
-                    "run_props": {
-                        "bold": True,
-                        "size_pt": _HEADING_SIZES.get(level, _HEADING_SIZE),
-                    },
-                    "paragraph_props": {
-                        "outline_level": level - 1,
-                        "keep_next": True,
-                        "keep_lines": True,
-                        "spacing": {"before": _HEADING_SPACE_BEFORE, "after": 0},
-                    },
-                },
-            )
-        except LocatorError as exc:
+            engine_create_style(doc, spec)
+        except EngineError:
             # ``already_exists`` is the expected answer here: "ensure" means
-            # create what is missing, not redefine what the document already has,
-            # and a document whose Heading 3 is a hand-made style keeps it.
-            if exc.code != "already_exists":
-                raise
+            # create what is missing, not redefine what the document already
+            # has, and a document whose Heading 3 is a hand-made style keeps
+            # it.  Any other engine failure (no style part at all, a residual
+            # ``not_found``) is treated the same way: "ensure" never raises
+            # for what the document does not have, it just leaves that level
+            # unmade.
+            pass
 
 
 def ensure_table_style(doc):
