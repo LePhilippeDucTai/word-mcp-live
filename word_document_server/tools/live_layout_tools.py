@@ -44,7 +44,17 @@ async def word_live_set_page_layout(
     """
     if _MAC_AVAILABLE:
         from word_document_server.core.word_mac import mac_set_page_layout
-        return mac_set_page_layout(filename=filename, section_index=section_index, orientation=orientation, page_width=page_width, page_height=page_height, top_margin=top_margin, bottom_margin=bottom_margin, left_margin=left_margin, right_margin=right_margin)
+        return mac_set_page_layout(
+            filename=filename,
+            section_index=section_index,
+            orientation=orientation,
+            page_width=page_width_inches * _PTS_PER_INCH if page_width_inches is not None else None,
+            page_height=page_height_inches * _PTS_PER_INCH if page_height_inches is not None else None,
+            top_margin=margin_top_inches * _PTS_PER_INCH if margin_top_inches is not None else None,
+            bottom_margin=margin_bottom_inches * _PTS_PER_INCH if margin_bottom_inches is not None else None,
+            left_margin=margin_left_inches * _PTS_PER_INCH if margin_left_inches is not None else None,
+            right_margin=margin_right_inches * _PTS_PER_INCH if margin_right_inches is not None else None,
+        )
 
     if sys.platform != "win32":
         return json.dumps({"error": "Live layout tools are only available on Windows"})

@@ -45,15 +45,15 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P11 | Correctif D-015 : CHANGELOG des changements de comportement de J03 | T5 | ✅ | 1 | entrée `[Unreleased]` : 1 `Changed` (fusion) + 2 `Fixed` (garde-fous) ; préambule et historique ≥ 1.6.0 byte à byte intacts (hashes) ; 7/7 acceptations rejouées sur la base |
 | J03-P8 | Review J03 | T2 | ✅ | 1 | round 1 **failed** (1 bloquant : `delete_paragraph`/`add_bookmark` hors espace V2, `find_text → 5` supprimait « Echo ») → J03-P5 review fix 1 ; round 2 sans finding bloquant ; 24 acceptations + 5 Checks verts, 1091 passed / 1 xfailed, 120 outils MCP, `uv lock --check` 0 ; 2 should-fix (D-016, D-017) + 2 optional (D-018, D-019) |
 
-## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (0/7)
+## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (1/7)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
-| J04-P7 | Correctif D-016 : un seul espace d'index pour `paragraph_index` (D-017, D-018, D-019 embarquées) | T3 | ⬜ | 0 | en tête de J04, `depends_on: []` ; 6 des 8 acceptations sont rouges sur le code actuel ; notes de bas de page délibérément hors périmètre (R-003) |
+| J04-P7 | Correctif D-016 : un seul espace d'index pour `paragraph_index` (D-017, D-018, D-019 embarquées) | T3 | ⬜ | 0 | en tête de J04, `depends_on: []` ; 6 des 8 acceptations sont rouges sur le code actuel ; notes de bas de page délibérément hors périmètre (R-003) ; essai 1 `blocked` : `isolation: "worktree"` a branché depuis `main` au lieu de `v2-semantic-engine` (D-003), try rendu — reprendre en worktree manuel |
 | J04-P1 | Locators et inspection | T3 | ⬜ | 0 | `depends_on: [J04-P7]` (réutilise `_v2_index_map` / `indexed_paragraphs()`) |
 | J04-P2 | Outils `doc_*` texte, enregistrement, rapport structuré | T3 | ⬜ | 0 | |
 | J04-P3 | Plateformes, TOOLS.md généré, garde-fous de dérive, registre corrigé | T4 | ⬜ | 0 | |
-| J04-P4 | Plantages macOS prouvés par lecture | T4 | ⬜ | 0 | |
+| J04-P4 | Plantages macOS prouvés par lecture | T4 | ✅ | 1 | `depends_on: []` ; worktree branché par erreur depuis `main` (D-003) mais fichiers jamais touchés par `v2-semantic-engine` (`git log v2-semantic-engine ^main -- <files>` vide) : diff-stat vérifié limité aux 4 `files`, merge propre, acceptations rejouées vertes sur la base |
 | J04-P5 | Lot atomique `doc_apply_edits` | T4 | ⬜ | 0 | |
 | J04-P6 | Review J04 | T2 | ⬜ | 0 | `depends_on` étendu à J04-P7 ; relit l'alignement, les notes laissées à l'écart, la 5e puce, la borne d'`add_bookmark` et les 2 formes de `search_and_replace` |
 
