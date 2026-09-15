@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Dict, List, Any
 from docx import Document
 from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
 from docx.text.paragraph import Paragraph
 from lxml import etree
 
@@ -14,6 +13,7 @@ from word_document_server.engine.errors import EngineError, PackageError
 from word_document_server.engine.find import _v2_index_map, iter_paragraphs
 from word_document_server.engine.find import find as engine_find
 from word_document_server.engine.format import PPR_ORDER
+from word_document_server.engine.numbering import apply_list, create_list_definition
 from word_document_server.engine.package import DocxPackage
 from word_document_server.engine.ranges import insert_text, replace_range
 from word_document_server.engine.textmodel import fields as paragraph_fields
@@ -525,18 +525,21 @@ def insert_line_or_paragraph_near_text(doc_path: str, target_text: str = None, l
                 if p is para:
                     anchor_index = i
                     break
-        # Determine style: use provided or match target
-        style = line_style if line_style else para.style
-        new_para = doc.add_paragraph(line_text, style=style)
+        # Determine style: use provided or match target.  The *name*, never the
+        # style object: interpolating the object puts its repr -- and with it the
+        # id() of that call's instance -- in the reply, so the same call on the
+        # same document answered a different string every time (D-021).
+        style_name = line_style if line_style else (para.style.name if para.style else None)
+        new_para = doc.add_paragraph(line_text, style=style_name)
         if position == 'before':
             para._element.addprevious(new_para._element)
         else:
             para._element.addnext(new_para._element)
         doc.save(doc_path)
         if anchor_index is not None:
-            return f"Line/paragraph inserted {position} paragraph (index {anchor_index}) with style '{style}'."
+            return f"Line/paragraph inserted {position} paragraph (index {anchor_index}) with style '{style_name}'."
         else:
-            return f"Line/paragraph inserted {position} the target paragraph with style '{style}'."
+            return f"Line/paragraph inserted {position} the target paragraph with style '{style_name}'."
     except Exception as e:
         return f"Failed to insert line/paragraph: {str(e)}"
 
@@ -547,36 +550,19 @@ def add_bullet_numbering(paragraph, num_id=1, level=0):
 
     Args:
         paragraph: python-docx Paragraph object
-        num_id: Numbering definition ID (1=bullets, 2=numbers, etc.)
+        num_id: Numbering definition ID, as
+            :func:`~word_document_server.engine.numbering.create_list_definition`
+            returns it. The default of 1 is kept for the signature's sake only:
+            it is an id whose meaning depends on the document, and a caller that
+            wants a list of its own has to allocate one.
         level: Indentation level (0=first level, 1=second level, etc.)
 
     Returns:
         The modified paragraph
     """
-    # Get or create paragraph properties
-    pPr = paragraph._element.get_or_add_pPr()
-
-    # Remove existing numPr if any (to avoid duplicates)
-    existing_numPr = pPr.find(qn('w:numPr'))
-    if existing_numPr is not None:
-        pPr.remove(existing_numPr)
-
-    # Create numbering properties element
-    numPr = OxmlElement('w:numPr')
-
-    # Set indentation level
-    ilvl = OxmlElement('w:ilvl')
-    ilvl.set(qn('w:val'), str(level))
-    numPr.append(ilvl)
-
-    # Set numbering definition ID
-    numId = OxmlElement('w:numId')
-    numId.set(qn('w:val'), str(num_id))
-    numPr.append(numId)
-
-    # Add to paragraph properties
-    pPr.append(numPr)
-
+    # Delegated: the engine writes w:numPr at its schema position in w:pPr,
+    # where this function used to append it after every other property.
+    apply_list(paragraph, num_id, level)
     return paragraph
 
 
@@ -634,23 +620,34 @@ def insert_numbered_list_near_text(doc_path: str, target_text: str = None, list_
                 if p is para:
                     anchor_index = i
                     break
-        # Determine numbering ID based on bullet_type
-        num_id = 1 if bullet_type == 'bullet' else 2
+        items = list(list_items or [])
+        # Allocate a list of our own rather than pointing at numId 1 or 2: those
+        # ids mean whatever the document says they mean, so the items used to
+        # join -- and continue -- an unrelated list the author already had, or
+        # to resolve to nothing at all on a document with no numbering part.
+        # Allocated only when there is something to number, so a call with no
+        # item leaves no definition behind.
+        num_id = None
+        if items:
+            num_id = create_list_definition(
+                doc, 'bullet' if bullet_type == 'bullet' else 'decimal'
+            )
 
-        # Use ListParagraph style for proper list formatting
+        # Use the List Paragraph style for proper list formatting, if the
+        # document defines it.  A style that is not there is not applied: naming
+        # one python-docx cannot resolve raises, and falling back to 'Normal'
+        # would stamp an explicit style on a paragraph that asked for none.
         style_name = None
-        for candidate in ['List Paragraph', 'ListParagraph', 'Normal']:
+        for candidate in ['List Paragraph', 'ListParagraph']:
             try:
                 _ = doc.styles[candidate]
                 style_name = candidate
                 break
             except KeyError:
                 continue
-        if not style_name:
-            style_name = None  # fallback to default
 
         new_paras = []
-        for item in (list_items or []):
+        for item in items:
             p = doc.add_paragraph(item, style=style_name)
             # Add bullet numbering XML - this is the fix!
             add_bullet_numbering(p, num_id=num_id, level=0)
