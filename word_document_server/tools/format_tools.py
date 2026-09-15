@@ -7,9 +7,7 @@ including text formatting, table formatting, and custom styles.
 import os
 from typing import List, Optional, Dict, Any
 from docx import Document
-from docx.shared import Pt, RGBColor
 
-from word_document_server.utils.document_utils import get_effective_text
 from docx.enum.text import WD_COLOR_INDEX
 from docx.enum.style import WD_STYLE_TYPE
 
@@ -20,22 +18,36 @@ from word_document_server.core.tables import (
     highlight_header_row, merge_cells, merge_cells_horizontal, merge_cells_vertical,
     set_cell_alignment_by_position, set_table_alignment, set_column_width_by_position,
     set_column_widths, set_table_width as set_table_width_func, auto_fit_table,
-    format_cell_text_by_position, set_cell_padding_by_position
+    format_cell_text_by_position, set_cell_padding_by_position,
+    COLOR_NAMES, resolve_color, run_patch
 )
+from word_document_server.engine.find import _v2_index_map, iter_paragraphs
+from word_document_server.engine.format import apply_rpr
+from word_document_server.engine.package import DocxPackage
+from word_document_server.engine.ranges import resolve
+from word_document_server.engine.textmodel import visible_text
 
 
 async def format_text(filename: str, paragraph_index: int, start_pos: int, end_pos: int, 
                      bold: Optional[bool] = None, italic: Optional[bool] = None, 
                      underline: Optional[bool] = None, color: Optional[str] = None,
                      font_size: Optional[int] = None, font_name: Optional[str] = None) -> str:
-    """Format text within a paragraph using python-docx (cross-platform, file-based).
+    """Format text within a paragraph (cross-platform, file-based).
+
+    The formatting is applied to the runs the range already covers, so
+    everything they carry and the caller did not name — the character style,
+    the language, the theme font, a tracked property revision — survives, and
+    so does everything outside the range. A run the range covers in part is
+    split first; a run it does not cover is never touched.
     Only supports: bold, italic, underline, color, font_size, font_name.
     Does NOT support: highlight colors, styles, tracked changes.
     For highlight/style changes, use word_live_format_text instead (Windows only).
 
     Args:
         filename: Path to the Word document (must not be open in Word).
-        paragraph_index: Index of the paragraph (0-based).
+        paragraph_index: Index of the paragraph (0-based). Paragraphs inside a
+            table cell or a text box have no index here; use
+            word_format_table_cell_text for a table cell.
         start_pos: Start position within the paragraph text.
         end_pos: End position within the paragraph text.
         bold: Set text bold (True/False).
@@ -46,7 +58,7 @@ async def format_text(filename: str, paragraph_index: int, start_pos: int, end_p
         font_name: Font name/family (e.g., "Arial").
     """
     filename = ensure_docx_extension(filename)
-    
+
     # Ensure numeric parameters are the correct type
     try:
         paragraph_index = int(paragraph_index)
@@ -56,25 +68,37 @@ async def format_text(filename: str, paragraph_index: int, start_pos: int, end_p
             font_size = int(font_size)
     except (ValueError, TypeError):
         return "Invalid parameter: paragraph_index, start_pos, end_pos, and font_size must be integers"
-    
+
     if not os.path.exists(filename):
         return f"Document {filename} does not exist"
-    
+
     # Check if file is writeable
     is_writeable, error_message = check_file_writeable(filename)
     if not is_writeable:
         return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
+
+    # An unreadable colour is refused here rather than silently written as
+    # black, which is what the caller would never notice.
+    if color and resolve_color(color) is None:
+        return (f"Invalid color '{color}'. Use a hex value such as 'FF0000', 'auto', "
+                f"or one of: {', '.join(sorted(COLOR_NAMES))}.")
+
     try:
+        patch = run_patch(bold=bold, italic=italic, underline=underline, color=color,
+                          font_size=font_size, font_name=font_name)
         async with get_file_lock(filename):
-            doc = Document(filename)
+            package = DocxPackage.open(filename)
+            _, story = package.stories()[0]
 
-            # Validate paragraph index
-            if paragraph_index < 0 or paragraph_index >= len(doc.paragraphs):
-                return f"Invalid paragraph index. Document has {len(doc.paragraphs)} paragraphs (0-{len(doc.paragraphs)-1})."
+            # The V2 index space: every paragraph of the body except those in a
+            # table cell or a text box. engine.find owns the filter.
+            indexed = {index: paragraph
+                       for paragraph, index in _v2_index_map(iter_paragraphs(story)).items()}
+            if paragraph_index not in indexed:
+                return f"Invalid paragraph index. Document has {len(indexed)} paragraphs (0-{len(indexed)-1})."
 
-            paragraph = doc.paragraphs[paragraph_index]
-            text = get_effective_text(paragraph)
+            paragraph = indexed[paragraph_index]
+            text = visible_text(paragraph)
 
             # Validate text positions
             if start_pos < 0 or end_pos > len(text) or start_pos >= end_pos:
@@ -83,67 +107,30 @@ async def format_text(filename: str, paragraph_index: int, start_pos: int, end_p
             # Get the text to format
             target_text = text[start_pos:end_pos]
 
-            # Clear existing runs and create three runs: before, target, after
-            for run in paragraph.runs:
-                run.clear()
-
-            # Add text before target
-            if start_pos > 0:
-                run_before = paragraph.add_run(text[:start_pos])
-
-            # Add target text with formatting
-            run_target = paragraph.add_run(target_text)
-            if bold is not None:
-                run_target.bold = bold
-            if italic is not None:
-                run_target.italic = italic
-            if underline is not None:
-                run_target.underline = underline
-            if color:
-                # Define common RGB colors
-                color_map = {
-                    'red': RGBColor(255, 0, 0),
-                    'blue': RGBColor(0, 0, 255),
-                    'green': RGBColor(0, 128, 0),
-                    'yellow': RGBColor(255, 255, 0),
-                    'black': RGBColor(0, 0, 0),
-                    'gray': RGBColor(128, 128, 128),
-                    'white': RGBColor(255, 255, 255),
-                    'purple': RGBColor(128, 0, 128),
-                    'orange': RGBColor(255, 165, 0)
-                }
-
-                try:
-                    if color.lower() in color_map:
-                        # Use predefined RGB color
-                        run_target.font.color.rgb = color_map[color.lower()]
-                    else:
-                        # Try to set color by name
-                        run_target.font.color.rgb = RGBColor.from_string(color)
-                except Exception as e:
-                    # If all else fails, default to black
-                    run_target.font.color.rgb = RGBColor(0, 0, 0)
-            if font_size:
-                run_target.font.size = Pt(font_size)
-            if font_name:
-                run_target.font.name = font_name
-
-            # Add text after target
-            if end_pos < len(text):
-                run_after = paragraph.add_run(text[end_pos:])
-
-            doc.save(filename)
+            # Resolve even when there is nothing to apply: it is what refuses a
+            # range cutting through a field or straddling deleted content.
+            pieces = resolve(paragraph, start_pos, end_pos, operation="read")
+            if patch:
+                apply_rpr(pieces, patch, pkg=package)
+                package.save(filename)
         return f"Text '{target_text}' formatted successfully in paragraph {paragraph_index}."
     except Exception as e:
         return f"Failed to format text: {str(e)}"
 
 
-async def create_custom_style(filename: str, style_name: str, 
+async def create_custom_style(filename: str, style_name: str,
                              bold: Optional[bool] = None, italic: Optional[bool] = None,
                              font_size: Optional[int] = None, font_name: Optional[str] = None,
                              color: Optional[str] = None, base_style: Optional[str] = None) -> str:
-    """Create a custom style in the document.
-    
+    """Create a custom paragraph style in the document.
+
+    The style is written to styles.xml as a real w:style: a w:styleId derived
+    from the name, the w:basedOn reference checked against the document, and the
+    children in schema order. Nothing else in the package is touched.
+    Creating a style that is already defined leaves it exactly as it is rather
+    than redefining it — redefining a style reformats every paragraph that names
+    it, which is what word_doc_update_style is for.
+
     Args:
         filename: Path to the Word document
         style_name: Name for the new style
@@ -151,22 +138,31 @@ async def create_custom_style(filename: str, style_name: str,
         italic: Set text italic (True/False)
         font_size: Font size in points
         font_name: Font name/family
-        color: Text color (e.g., 'red', 'blue')
-        base_style: Optional existing style to base this on
+        color: Text color — named ("red", "blue") or hex ("FF0000")
+        base_style: Optional existing style to base this on, by id or by name
     """
     filename = ensure_docx_extension(filename)
-    
+
     if not os.path.exists(filename):
         return f"Document {filename} does not exist"
-    
+
     # Check if file is writeable
     is_writeable, error_message = check_file_writeable(filename)
     if not is_writeable:
         return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
+
+    # An unreadable colour is refused here rather than silently written as
+    # black, which is what the caller would never notice.
+    if color and resolve_color(color) is None:
+        return (f"Invalid color '{color}'. Use a hex value such as 'FF0000', 'auto', "
+                f"or one of: {', '.join(sorted(COLOR_NAMES))}.")
+
     try:
         async with get_file_lock(filename):
-            doc = Document(filename)
+            # The package, not python-docx's Document: saving through the latter
+            # rewrites every part it understands, and a style is no reason to
+            # touch the rest of the document.
+            package = DocxPackage.open(filename)
 
             # Build font properties dictionary
             font_properties = {}
@@ -182,15 +178,15 @@ async def create_custom_style(filename: str, style_name: str,
                 font_properties['color'] = color
 
             # Create the style
-            new_style = create_style(
-                doc,
+            create_style(
+                package,
                 style_name,
                 WD_STYLE_TYPE.PARAGRAPH,
                 base_style=base_style,
                 font_properties=font_properties
             )
 
-            doc.save(filename)
+            package.save(filename)
         return f"Style '{style_name}' created successfully."
     except Exception as e:
         return f"Failed to create style: {str(e)}"

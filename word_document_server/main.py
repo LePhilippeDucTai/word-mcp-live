@@ -7,11 +7,13 @@ Supports multiple transports: stdio, sse, and streamable-http using standalone F
 import os
 import sys
 from dotenv import load_dotenv
-from word_document_server.defaults import DEFAULT_AUTHOR, DEFAULT_INITIALS
 
-# Load environment variables from .env file
+# Load environment variables from .env file before importing anything that
+# reads them at import time (e.g. word_document_server.defaults).
 print("Loading configuration from .env file...", file=sys.stderr)
 load_dotenv()
+from word_document_server.defaults import DEFAULT_AUTHOR, DEFAULT_INITIALS
+
 # Set required environment variable for FastMCP 2.8.1+
 os.environ.setdefault('FASTMCP_LOG_LEVEL', 'INFO')
 from fastmcp import FastMCP
@@ -35,6 +37,7 @@ from word_document_server.tools import (
 )
 from word_document_server.tools.content_tools import replace_paragraph_block_below_header_tool
 from word_document_server.tools.content_tools import replace_block_between_manual_anchors_tool
+from word_document_server.tools.v2.registry import register_v2_tools
 
 def get_transport_config():
     """
@@ -1079,12 +1082,13 @@ def register_tools():
         autofit_mode: str = "content",
         accept_revisions: bool = False,
         track_changes: bool = False,
+        scrub_orphans: bool = True,
     ):
         return live_tools.word_live_modify_table(
             filename, table_index, operation, row, col, text,
             before_row, before_col, header, cells,
             start_row, start_col, end_row, end_col,
-            autofit_mode, accept_revisions, track_changes,
+            autofit_mode, accept_revisions, track_changes, scrub_orphans,
         )
 
     @mcp.tool(
@@ -1791,11 +1795,12 @@ def register_tools():
         footer_text: str = None,
         header_alignment: str = "center",
         footer_alignment: str = "center",
+        replace_content: bool = True,
     ):
         """Add header and/or footer text to a document section."""
         return layout_tools.add_header_footer(
             filename, section_index, header_text, footer_text,
-            header_alignment, footer_alignment,
+            header_alignment, footer_alignment, replace_content,
         )
 
     @mcp.tool(
@@ -1933,6 +1938,12 @@ def register_tools():
         """Verify document protection and/or digital signature."""
         return protection_tools.verify_document(filename, password)
 
+    # --- V2 semantic tools (doc_*) ---
+    # Discovered from word_document_server/tools/v2/: each module exports a
+    # TOOLS list, and the registry derives name, schema and description from the
+    # function itself.  Adding a V2 tool never touches this file.
+    register_v2_tools(mcp)
+
 
 def run_server():
     """Run the Word Document MCP Server with configurable transport."""
@@ -1942,10 +1953,6 @@ def run_server():
     # Setup logging
     # setup_logging(config['debug'])
     
-    # Monkey-patch Document.save() to preserve comments.xml and other custom parts
-    from word_document_server.utils.save_utils import install_save_hook
-    install_save_hook()
-
     # Monkey-patch PhysPkgReader to detect Word-locked files
     from word_document_server.utils.path_utils import install_path_hook
     install_path_hook()
@@ -1990,7 +1997,7 @@ def run_server():
         print("\nShutting down server...", file=sys.stderr)
     except Exception as e:
         print(f"Error starting server: {e}", file=sys.stderr)
-        if config['debug']:
+        if config.get('debug', False):
             import traceback
             traceback.print_exc()
         sys.exit(1)

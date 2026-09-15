@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Generate ``TOOLS.md`` and the README tool-count table from the live registry.
+
+The single source of truth is what the server actually registers
+(``mcp.list_tools()`` after ``register_tools()``) crossed with
+:data:`word_document_server.tools.platforms.PLATFORMS`. Nothing here is typed
+by hand a second time, so ``TOOLS.md`` and the README counters cannot drift
+from the registry the way the numbers this script replaced had (README
+124/80/44/40, ``TOOLS.md`` 115, ``manifest.json`` 114 -- three different counts
+for one server).
+
+Usage:
+    uv run python scripts/gen_tools_md.py           # write TOOLS.md and README.md
+    uv run python scripts/gen_tools_md.py --check    # exit 1 if either has drifted
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from word_document_server.main import mcp, register_tools
+from word_document_server.tools.platforms import (
+    CROSS_PLATFORM,
+    PLATFORMS,
+    WINDOWS_AND_MACOS,
+    WINDOWS_ONLY,
+)
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TOOLS_MD_PATH = REPO_ROOT / "TOOLS.md"
+README_PATH = REPO_ROOT / "README.md"
+
+README_MARKER_START = "<!-- tool-counts:start -->"
+README_MARKER_END = "<!-- tool-counts:end -->"
+
+#: One row of TOOLS.md.
+ToolRow = tuple[str, str, frozenset[str], bool, bool]
+
+
+def _load_tools() -> list:
+    """Every tool the server registers, in registration order."""
+    register_tools()
+    return asyncio.run(mcp.list_tools())
+
+
+def _first_line(description: str | None) -> str:
+    """The first line of a docstring-derived description, table-safe."""
+    first = (description or "").strip().split("\n", 1)[0].strip()
+    return first.replace("|", "\\|")
+
+
+def _rows(tools: list) -> list[ToolRow]:
+    rows: list[ToolRow] = []
+    for tool in tools:
+        platforms = PLATFORMS.get(tool.name, frozenset())
+        read_only = bool(tool.annotations and tool.annotations.read_only_hint)
+        destructive = bool(tool.annotations and tool.annotations.destructive_hint)
+        rows.append((tool.name, _first_line(tool.description), platforms, read_only, destructive))
+    return rows
+
+
+def _platform_label(platforms: frozenset[str]) -> str:
+    if platforms == CROSS_PLATFORM:
+        return "linux, windows, macos"
+    if platforms == WINDOWS_AND_MACOS:
+        return "windows, macos"
+    if platforms == WINDOWS_ONLY:
+        return "windows"
+    return ", ".join(sorted(platforms)) or "?"
+
+
+def _behavior_label(read_only: bool, destructive: bool) -> str:
+    if read_only:
+        return "read-only"
+    if destructive:
+        return "destructive"
+    return "-"
+
+
+def _render_table(rows: list[ToolRow]) -> str:
+    lines = [
+        "| Tool | Description | Platforms | Behavior |",
+        "|------|-------------|-----------|----------|",
+    ]
+    for name, description, platforms, read_only, destructive in rows:
+        lines.append(
+            f"| `{name}` | {description} | {_platform_label(platforms)} "
+            f"| {_behavior_label(read_only, destructive)} |"
+        )
+    return "\n".join(lines)
+
+
+def render_tools_md(tools: list) -> str:
+    """The full content of ``TOOLS.md`` for the given registered `tools`."""
+    rows = _rows(tools)
+    docx_rows = [r for r in rows if r[2] == CROSS_PLATFORM and not r[0].startswith("doc_")]
+    v2_rows = [r for r in rows if r[2] == CROSS_PLATFORM and r[0].startswith("doc_")]
+    mac_live_rows = [r for r in rows if r[2] == WINDOWS_AND_MACOS]
+    win_only_rows = [r for r in rows if r[2] == WINDOWS_ONLY]
+
+    sections = [
+        (
+            "Cross-Platform Tools",
+            (
+                "These work on Windows, macOS, and Linux using python-docx. "
+                "The document file must be **closed** (not open in Word)."
+            ),
+            docx_rows,
+        ),
+        (
+            "V2 Semantic Engine Tools (`doc_*`)",
+            (
+                "Locator-based reading and editing on the semantic engine, also "
+                "python-docx-based. Every write answers the same report shape "
+                "(`status`, `dry_run`, `changes`, `warnings`); see "
+                "`word_document_server/tools/v2/registry.py`."
+            ),
+            v2_rows,
+        ),
+        (
+            "Windows + macOS Live Tools",
+            (
+                "These require Microsoft Word running: COM automation on Windows, "
+                "AppleScript/JXA on macOS. They operate on documents **currently "
+                "open in Word**."
+            ),
+            mac_live_rows,
+        ),
+        (
+            "Windows-Only Live Tools",
+            "Word automation available only through COM, on Windows.",
+            win_only_rows,
+        ),
+    ]
+
+    parts = [
+        "# Tool Reference",
+        "",
+        (
+            f"Complete list of all {len(rows)} tools provided by word-mcp-live, "
+            "generated by `scripts/gen_tools_md.py` from the live tool registry. "
+            "Do not edit by hand."
+        ),
+        "",
+    ]
+    for title, blurb, section_rows in sections:
+        parts.append(f"## {title} ({len(section_rows)})")
+        parts.append("")
+        parts.append(blurb)
+        parts.append("")
+        parts.append(_render_table(section_rows))
+        parts.append("")
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def render_readme_counts(tools: list) -> str:
+    """The markdown snippet placed between the README tool-count markers."""
+    rows = _rows(tools)
+    docx_count = sum(1 for r in rows if r[2] == CROSS_PLATFORM and not r[0].startswith("doc_"))
+    v2_count = sum(1 for r in rows if r[2] == CROSS_PLATFORM and r[0].startswith("doc_"))
+    live_count = sum(1 for r in rows if r[2] in (WINDOWS_AND_MACOS, WINDOWS_ONLY))
+    mac_live_count = sum(1 for r in rows if r[2] == WINDOWS_AND_MACOS)
+
+    lines = [
+        README_MARKER_START,
+        (
+            f"**{len(rows)} tools** across two modes — see the "
+            "[complete tool reference](TOOLS.md) for details."
+        ),
+        "",
+        "| Category | Count |",
+        "|----------|-------|",
+        f"| Cross-platform (python-docx) | {docx_count} |",
+        f"| V2 semantic engine (`doc_*`, python-docx) | {v2_count} |",
+        f"| Windows Live (COM automation) | {live_count} |",
+        f"| macOS Live (JXA automation) | {mac_live_count} (of the {live_count} live tools) |",
+        README_MARKER_END,
+    ]
+    return "\n".join(lines)
+
+
+def apply_readme_counts(readme_text: str, snippet: str) -> str:
+    """`readme_text` with the content between the markers replaced by `snippet`."""
+    start = readme_text.find(README_MARKER_START)
+    end = readme_text.find(README_MARKER_END)
+    if start == -1 or end == -1:
+        raise ValueError(
+            f"README.md is missing {README_MARKER_START!r} / {README_MARKER_END!r} markers"
+        )
+    end += len(README_MARKER_END)
+    return readme_text[:start] + snippet + readme_text[end:]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Exit 1 if TOOLS.md or the README tool-count table has drifted, without writing.",
+    )
+    args = parser.parse_args()
+
+    tools = _load_tools()
+    tools_md = render_tools_md(tools)
+    readme_snippet = render_readme_counts(tools)
+    current_readme = README_PATH.read_text()
+    new_readme = apply_readme_counts(current_readme, readme_snippet)
+
+    if args.check:
+        drifted = []
+        if not TOOLS_MD_PATH.exists() or TOOLS_MD_PATH.read_text() != tools_md:
+            drifted.append("TOOLS.md")
+        if current_readme != new_readme:
+            drifted.append("README.md")
+        if drifted:
+            print(f"Drift detected in: {', '.join(drifted)}. Run without --check to regenerate.", file=sys.stderr)
+            return 1
+        print("TOOLS.md and README.md are up to date.")
+        return 0
+
+    TOOLS_MD_PATH.write_text(tools_md)
+    README_PATH.write_text(new_readme)
+    print(f"Wrote {TOOLS_MD_PATH} and updated tool counts in {README_PATH}.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

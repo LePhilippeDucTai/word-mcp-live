@@ -7,8 +7,11 @@ Thanks for your interest in contributing! This guide covers the basics of settin
 ```bash
 git clone https://github.com/ykarapazar/word-mcp-live.git
 cd word-mcp-live
-pip install -e ".[dev]"
+uv sync
 ```
+
+`uv` must be on `PATH` (installed under `~/.local/bin` by default); prefix commands with
+`PATH="$HOME/.local/bin:$PATH"` if it isn't.
 
 For Windows Live tools, you also need:
 - Windows 10/11 with Microsoft Word installed
@@ -108,8 +111,17 @@ All destructive live tools must be wrapped with `undo_record` so each operation 
 ## Running Tests
 
 ```bash
-pytest tests/
+PATH="$HOME/.local/bin:$PATH" uv run pytest tests/ -q
 ```
+
+Or run the full check (sync + lint + tests) with:
+
+```bash
+bash scripts/check.sh
+```
+
+Tests are marked `libreoffice` (requires a LibreOffice installation) and `characterization`
+(pinning existing behavior) where relevant.
 
 ## Pull Request Guidelines
 

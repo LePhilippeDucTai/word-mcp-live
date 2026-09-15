@@ -12,6 +12,7 @@ from typing import List, Optional, Dict, Any
 from docx import Document
 import msoffcrypto 
 
+from word_document_server.engine.package import atomic_write_bytes
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension, get_file_lock
 
 
@@ -55,9 +56,10 @@ async def protect_document(filename: str, password: str) -> str:
 
             file.encrypt(password=password, outfile=encrypted_data_io)
 
-            # Overwrite the original file with the encrypted data
-            with open(filename, "wb") as outfile:
-                outfile.write(encrypted_data_io.getvalue())
+            # Overwrite the original file with the encrypted data. atomic_write_bytes
+            # writes to a temp file and renames it into place, so the original stays
+            # intact on any failure and no temporary file is left behind.
+            atomic_write_bytes(filename, encrypted_data_io.getvalue())
 
             base_path, _ = os.path.splitext(filename)
             metadata_path = f"{base_path}.protection"
@@ -67,16 +69,9 @@ async def protect_document(filename: str, password: str) -> str:
         return f"Document {filename} encrypted successfully with password."
 
     except Exception as e:
-        # Attempt to restore original file content on failure
-        try:
-            if 'original_data' in locals():
-                with open(filename, "wb") as outfile:
-                    outfile.write(original_data)
-                return f"Failed to encrypt document {filename}: {str(e)}. Original file restored."
-            else:
-                 return f"Failed to encrypt document {filename}: {str(e)}. Could not restore original file."
-        except Exception as restore_e:
-             return f"Failed to encrypt document {filename}: {str(e)}. Also failed to restore original file: {str(restore_e)}"
+        # atomic_write_bytes never touches the destination unless the full write
+        # succeeds, so the original file is guaranteed to be unchanged here.
+        return f"Failed to encrypt document {filename}: {str(e)}. Original file unchanged."
 
 
 async def add_restricted_editing(filename: str, password: str, editable_sections: List[str]) -> str:
@@ -256,24 +251,18 @@ async def unprotect_document(filename: str, password: str) -> str:
             decrypted_data_io = io.BytesIO()
             file.decrypt(outfile=decrypted_data_io) # Pass the buffer as the 'outfile' argument
 
-            # Overwrite the original file with the decrypted data
-            with open(filename, "wb") as outfile:
-                outfile.write(decrypted_data_io.getvalue())
+            # Overwrite the original file with the decrypted data. atomic_write_bytes
+            # writes to a temp file and renames it into place, so the encrypted file
+            # stays intact on any failure and no temporary file is left behind.
+            atomic_write_bytes(filename, decrypted_data_io.getvalue())
 
         return f"Document {filename} decrypted successfully."
 
     except msoffcrypto.exceptions.InvalidKeyError:
          return f"Failed to decrypt document {filename}: Incorrect password."
-    except msoffcrypto.exceptions.InvalidFormatError:
+    except msoffcrypto.exceptions.FileFormatError:
          return f"Failed to decrypt document {filename}: File is not encrypted or is not a supported Office format."
     except Exception as e:
-        # Attempt to restore encrypted file content on failure
-        try:
-            if 'encrypted_data' in locals():
-                with open(filename, "wb") as outfile:
-                    outfile.write(encrypted_data)
-                return f"Failed to decrypt document {filename}: {str(e)}. Encrypted file restored."
-            else:
-                 return f"Failed to decrypt document {filename}: {str(e)}. Could not restore encrypted file."
-        except Exception as restore_e:
-             return f"Failed to decrypt document {filename}: {str(e)}. Also failed to restore encrypted file: {str(restore_e)}"
+        # atomic_write_bytes never touches the destination unless the full write
+        # succeeds, so the encrypted file is guaranteed to be unchanged here.
+        return f"Failed to decrypt document {filename}: {str(e)}. Encrypted file unchanged."

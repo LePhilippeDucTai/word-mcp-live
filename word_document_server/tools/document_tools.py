@@ -140,76 +140,66 @@ async def copy_document(source_filename: str, destination_filename: Optional[str
 
 async def merge_documents(target_filename: str, source_filenames: List[str], add_page_breaks: bool = True) -> str:
     """Merge multiple Word documents into a single document.
-    
+
+    The first source document becomes the merged document -- it keeps its own
+    styles, numbering, sections, headers and footers -- and the body of every
+    other source is appended to it, element by element, by
+    :func:`~word_document_server.engine.merge.append_document`. Runs, direct
+    formatting, images, hyperlinks, bookmarks, fields, tracked changes, content
+    controls and table geometry are carried over as they are; styles and list
+    definitions the merged document lacks are copied with them.
+
+    A source whose content carries comments, footnotes or endnotes is refused
+    rather than merged without them, and the target file is left untouched. The
+    headers and footers of the appended sources are not imported; whatever the
+    merge could not carry over faithfully is listed after the success message.
+
     Args:
         target_filename: Path to the target document (will be created or overwritten)
         source_filenames: List of paths to source documents to merge
         add_page_breaks: If True, add page breaks between documents
     """
-    from word_document_server.core.tables import copy_table
-    
+    from word_document_server.engine.merge import append_document
+    from word_document_server.engine.package import DocxPackage
+
     target_filename = ensure_docx_extension(target_filename)
-    
+
     # Check if target file is writeable
     is_writeable, error_message = check_file_writeable(target_filename)
     if not is_writeable:
         return f"Cannot create target document: {error_message}"
-    
+
     # Validate all source documents exist
     missing_files = []
     for filename in source_filenames:
         doc_filename = ensure_docx_extension(filename)
         if not os.path.exists(doc_filename):
             missing_files.append(doc_filename)
-    
+
     if missing_files:
         return f"Cannot merge documents. The following source files do not exist: {', '.join(missing_files)}"
-    
+
     try:
-        # Create a new document for the merged result
-        target_doc = Document()
-        
-        # Process each source document
-        for i, filename in enumerate(source_filenames):
-            doc_filename = ensure_docx_extension(filename)
-            source_doc = Document(doc_filename)
-            
-            # Add page break between documents (except before the first one)
-            if add_page_breaks and i > 0:
-                target_doc.add_page_break()
-            
-            # Copy all paragraphs
-            for paragraph in source_doc.paragraphs:
-                # Create a new paragraph with the same text and style
-                new_paragraph = target_doc.add_paragraph(paragraph.text)
-                new_paragraph.style = target_doc.styles['Normal']  # Default style
-                
-                # Try to match the style if possible
-                try:
-                    if paragraph.style and paragraph.style.name in target_doc.styles:
-                        new_paragraph.style = target_doc.styles[paragraph.style.name]
-                except:
-                    pass
-                
-                # Copy run formatting
-                for i, run in enumerate(paragraph.runs):
-                    if i < len(new_paragraph.runs):
-                        new_run = new_paragraph.runs[i]
-                        # Copy basic formatting
-                        new_run.bold = run.bold
-                        new_run.italic = run.italic
-                        new_run.underline = run.underline
-                        # Font size if specified
-                        if run.font.size:
-                            new_run.font.size = run.font.size
-            
-            # Copy all tables
-            for table in source_doc.tables:
-                copy_table(table, target_doc)
-        
-        # Save the merged document
-        target_doc.save(target_filename)
-        return f"Successfully merged {len(source_filenames)} documents into {target_filename}"
+        if not source_filenames:
+            Document().save(target_filename)
+            return f"Successfully merged 0 documents into {target_filename}"
+
+        paths = [ensure_docx_extension(filename) for filename in source_filenames]
+        # The whole merge happens in memory and the file is written once, at the
+        # end: a source that has to be refused leaves the target as it was.
+        merged = DocxPackage.open(paths[0])
+        warnings = []
+        for path in paths[1:]:
+            report = append_document(
+                merged, DocxPackage.open(path), page_break=add_page_breaks
+            )
+            warnings.extend(f"{os.path.basename(path)}: {warning}" for warning in report.warnings)
+        merged.save(target_filename)
+
+        message = f"Successfully merged {len(source_filenames)} documents into {target_filename}"
+        if warnings:
+            message += "\nWarnings:\n" + "\n".join(f"- {warning}" for warning in warnings)
+        return message
     except Exception as e:
         return f"Failed to merge documents: {str(e)}"
 
