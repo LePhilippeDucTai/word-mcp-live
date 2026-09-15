@@ -113,7 +113,7 @@ listed under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md). Read it before upgr
 
 ### 2. The `doc_*` semantic surface
 
-Fifteen tools designed for an agent rather than for a script. They share one addressing
+Seventeen tools designed for an agent rather than for a script. They share one addressing
 model, one report shape, and a dry-run mode.
 
 **Locators.** A locator is a dict naming exactly one of five forms:
@@ -150,11 +150,21 @@ with a different, equally uniform shape:
 **The tools.**
 
 - Reading: `doc_inspect`, `doc_find`, `doc_get_effective_format`, `doc_list_styles`,
-  `doc_get_style`, `doc_find_style_usage`, `doc_capabilities`
+  `doc_get_style`, `doc_find_style_usage`, `doc_capabilities`, `doc_audit`, `doc_compare`
 - Writing: `doc_edit_text`, `doc_format_range`, `doc_apply_list`, `doc_apply_table_style`,
   `doc_create_style`, `doc_update_style`, `doc_delete_style`
 - Batching: `doc_apply_edits` applies a sequence of text and formatting edits as one
   all-or-nothing unit — either the whole batch lands or the file is left as it was.
+
+`doc_audit` reads a document and reports what is wrong with it in one read-only pass:
+paragraphs that read like a heading but carry no heading style, direct formatting
+overriding a style, dangling `numId`/`abstractNumId` references, bookmark and comment
+ranges missing one end, unused custom styles, near-duplicate style names, who left which
+tracked changes, and more — see its docstring for the full list of checks. Every finding
+carries the locator of the place it is about. `doc_compare` reads two
+documents and reports the structural difference between them — added, removed and
+changed paragraphs and tables, section and counter deltas — so a caller can confirm that
+a batch of edits touched exactly what it meant to and nothing else.
 
 `doc_capabilities` reports what *this* process on *this* machine can reach: the platform,
 whether LibreOffice is on `PATH` (the `convert_to_pdf` fallback outside Windows), and the
@@ -252,6 +262,43 @@ letting it land somewhere wrong:
   "message": "expected 'This agreement was signed by' at paragraph 1 of story 'document', found 'This agreement is entered into by ABC Co...'; no paragraph of that story carries that text"
 }
 ```
+
+**And once a batch of edits has landed**, `doc_audit` says what is left to fix and
+`doc_compare` says what actually moved. `doc_audit` takes just `filename` and returns
+findings — `heading_like_paragraph`, `unused_custom_style`, `dangling_num_id`, and more,
+each carrying the locator to act on it. `doc_compare` takes two filenames and reports
+added, removed and changed paragraphs and tables, section and counter deltas, against a
+copy taken before the batch started:
+
+```json
+{
+  "identical": false,
+  "paragraphs": {
+    "added": [],
+    "removed": [],
+    "changed": [
+      {
+        "story": "document",
+        "paragraph": 1,
+        "fields": ["text"],
+        "text_before": "This agreement is entered into by ABC Corporation and the client...",
+        "text_after": "This agreement is entered into by XYZ Ltd and the client..."
+      }
+    ]
+  },
+  "tables": {"added": [], "removed": [], "changed": []},
+  "counters_changed": []
+}
+```
+
+`tests/e2e/test_agent_flows.py` chains a full loop of this kind — `doc_inspect`,
+`doc_find`, a tracked-change edit, a comment, a character style, a numbered list, a table
+style, `doc_audit`, `doc_compare` against an untouched copy of the fixture, and
+`validate_package` — on the `combined` fixture, then reopens the result in LibreOffice
+when it is installed, plus one scenario for each of the four ways `doc_edit_text` refuses
+rather than guesses: a range that would cut a field in half, a stale anchor, a search with
+more than one match and no `occurrence`, and a range that would land inside an existing
+tracked deletion.
 
 ## Fidelity guarantees
 
