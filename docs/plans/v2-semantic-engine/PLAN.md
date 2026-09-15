@@ -33,6 +33,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 - Aller-retour `open`/`save` non neutre (D-007) : mesuré le 2026-09-09 sur 19/19 fixtures, `_EnginePartFactory` (J02-P1) fait parser par python-docx (`remove_blank_text=True`) des parties qu'il laissait en blob — `word/theme/theme1.xml`, `word/webSettings.xml`, `word/fontTable.xml`, `word/stylesWithEffects.xml`, `docProps/app.xml`, `customXml/itemProps1.xml` — resérialisées sans leurs blancs inter-éléments ; données intactes, invariant faux. J02-P8 restreint la fabrique à `LIVE_CONTENT_TYPES` (stories, famille des commentaires, styles, numbering) ; toute autre partie XML reste un blob, lisible par `Part.blob` seulement (J05-P1 pour le thème). Ne jamais tolérer ces parties en `parts=` d'`assert_unchanged_except` : le harnais deviendrait sourd à leur réécriture pour J03→J06.
 - Piège d'instrument (D-007) : `Diff.is_empty` (`tests/support/snapshot.py`) est une **méthode** — `assert delta.is_empty` est toujours vrai et a masqué le défaut ci-dessus sur 19 fixtures ; écrire `is_empty()` partout, garde grep posée par J02-P8 sur les porteurs de `Diff` (`difference`, `delta`, `diff(...)`). `Pieces.is_empty` (`engine/ranges.py`) est, elle, une propriété.
 - Lint partiel : `[tool.ruff] include` ne couvre que `word_document_server/engine/**`, `tests/**`, `scripts/**` ; un `ruff check .` vert ne dit rien de `word_document_server/tools|core|utils` (95 RUF013 et 9 W605 sur `live_tools.py` seul), que J03 réécrit.
+- Piège d'instrument (D-024) : `discover_tool_specs()` (`tools/v2/registry.py`) ignore en silence tout module de `tools/v2/` sans liste `TOOLS`, et `TOOLS.md`, les compteurs README et `test_registry_consistency` dérivent du registre — `doc_capabilities` (J04-P3) est resté non enregistré, invisible de `gen_tools_md.py --check` comme des tests, jusqu'à la revue J04-P6. J05-P0 l'enregistre et pose `test_every_v2_module_exports_tools` ; chaque module `tools/v2/*.py` ajouté par J05-P1..P5 et J06 exporte `TOOLS` et entre ses noms dans `_V2_TOOLS` (`tools/platforms.py`), la revue le vérifie par `mcp.list_tools()`. Même revue : `doc_apply_edits` ne validait pas les clés de ses charges (une faute de clé effaçait la plage visée et sauvegardait en `status: ok`) — les listes blanches de J05-P0 sont l'unique contrôle, alignées sur les signatures de `doc_edit_text`/`doc_format_range` ; un paramètre ajouté à l'un se reporte dans l'autre.
 
 ## Checks
 
@@ -49,7 +50,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 | J02 | Cœur OOXML : paquet, flux de texte, plages, révisions | 10 | J01 | opus/high | jalons/J02-coeur-ooxml.md |
 | J03 | Migration des outils existants sur le cœur | 11 | J02 | opus/high | jalons/J03-migration-outils.md |
 | J04 | Surface V2 : adressage, inspection, dry-run, capacités, docs | 7 | J03 | opus/high | jalons/J04-surface-v2.md |
-| J05 | Styles, thème, format effectif, numérotation, styles de tableau | 6 | J04 | opus/high | jalons/J05-styles-theme-numerotation.md |
+| J05 | Styles, thème, format effectif, numérotation, styles de tableau | 7 | J04 | opus/high | jalons/J05-styles-theme-numerotation.md |
 | J06 | Audit, comparaison et validation de bout en bout | 4 | J05 | opus/high | jalons/J06-audit-validation.md |
 
 ## Tiers
