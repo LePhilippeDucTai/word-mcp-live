@@ -29,7 +29,7 @@ feature") or that has no macOS branch at all is Windows-only
 ``[Windows only]`` tag says -- that tag predates the incremental macOS
 support and was never updated per tool, so it is not a reliable signal.
 
-The ten ``doc_*`` V2 tools (:data:`_V2_TOOLS`) are python-docx-based like the
+The eleven ``doc_*`` V2 tools (:data:`_V2_TOOLS`) are python-docx-based like the
 first tier, so they are cross-platform too.
 """
 
@@ -187,6 +187,7 @@ _V2_TOOLS: tuple[str, ...] = (
     "doc_list_styles",
     "doc_get_style",
     "doc_find_style_usage",
+    "doc_apply_table_style",
 )
 
 #: name -> platforms it runs on. See the module docstring for the tiers.
