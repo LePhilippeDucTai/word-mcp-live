@@ -659,7 +659,7 @@ async def search_and_replace(filename: str, find_text: str, replace_text: str) -
         else:
             message = f"No occurrences of '{find_text}' found."
         if report.skipped:
-            message += f", {report.skipped} skipped (inside fields)"
+            message += f" {report.skipped} skipped (inside fields)."
         return message
     except Exception as e:
         return f"Failed to search and replace: {str(e)}"

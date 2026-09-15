@@ -8,6 +8,7 @@ import os
 from typing import Optional
 
 from docx import Document
+from docx.text.paragraph import Paragraph
 from docx.shared import Pt, Inches, Cm, Emu
 from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -360,6 +361,15 @@ async def set_paragraph_spacing(
 ) -> str:
     """Set paragraph spacing for one or a range of paragraphs.
 
+    Every index here -- ``paragraph_index``, ``start_paragraph`` and
+    ``end_paragraph`` -- is read in the V2 index space, the one ``find_text``
+    reports, so the paragraph spaced is the paragraph the search tools pointed
+    at, content controls included; see
+    :func:`~word_document_server.utils.document_utils.indexed_paragraphs`.  Called
+    without any index the tool still spaces the whole document, which now means
+    the whole of that space: the paragraphs of a block content control are
+    spaced too, where they used to be skipped.
+
     Args:
         filename: Path to the Word document.
         paragraph_index: Single paragraph (0-based). Ignored if start/end given.
@@ -392,7 +402,10 @@ async def set_paragraph_spacing(
     try:
         async with get_file_lock(filename):
             doc = Document(filename)
-            total = len(doc.paragraphs)
+            paragraphs = [
+                Paragraph(p, doc) for p in indexed_paragraphs(doc.element.body)
+            ]
+            total = len(paragraphs)
 
             # Determine range
             if start_paragraph is not None and end_paragraph is not None:
@@ -407,7 +420,7 @@ async def set_paragraph_spacing(
 
             count = 0
             for i in indices:
-                pf = doc.paragraphs[i].paragraph_format
+                pf = paragraphs[i].paragraph_format
                 if space_before_pt is not None:
                     pf.space_before = Pt(space_before_pt)
                 if space_after_pt is not None:
@@ -469,7 +482,7 @@ async def add_bookmark(
             pkg = DocxPackage.open(filename)
             body = body_element(pkg)
             paragraphs = indexed_paragraphs(body)
-            if paragraph_index >= len(paragraphs):
+            if paragraph_index < 0 or paragraph_index >= len(paragraphs):
                 return f"Paragraph {paragraph_index} does not exist."
 
             para = paragraphs[paragraph_index]

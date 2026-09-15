@@ -47,6 +47,7 @@ from tests.support.snapshot import (
     assert_unchanged_except,
     snapshot,
 )
+from word_document_server.engine.package import DocxPackage
 from word_document_server.tools.comment_write_tools import add_comment
 from word_document_server.tools.content_tools import (
     add_heading,
@@ -82,6 +83,7 @@ from word_document_server.tools.tracked_changes_tools import (
     track_insert,
     track_replace,
 )
+from word_document_server.utils.document_utils import body_element, indexed_paragraphs
 from word_document_server.utils.extended_document_utils import find_text
 
 pytestmark = pytest.mark.characterization
@@ -482,12 +484,18 @@ def test_insert_numbered_list_near_text_only_appends_at_the_target(combined_path
     # snapshot-space index of every following paragraph, which is reindex
     # churn (nothing is lost), not something assert_unchanged_except's
     # exception list is meant to enumerate one by one.
-    last_docx_idx = len(PDocument(str(combined_path)).paragraphs) - 1
+    # The tool reads target_paragraph_index in the V2 space, so the last
+    # paragraph of the document is named by the last V2 index -- not by
+    # python-docx's body-paragraph count, which stops short of it as soon as a
+    # block content control sits in the body.
+    last_v2_idx = (
+        len(indexed_paragraphs(body_element(DocxPackage.open(str(combined_path))))) - 1
+    )
 
     result = _run(
         insert_numbered_list_near_text_tool(
             str(combined_path),
-            target_paragraph_index=last_docx_idx,
+            target_paragraph_index=last_v2_idx,
             list_items=["Item A", "Item B"],
         )
     )

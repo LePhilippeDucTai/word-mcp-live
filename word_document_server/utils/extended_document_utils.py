@@ -4,8 +4,9 @@ Extended document utilities for Word Document Server.
 from typing import Dict, List, Any, Optional, Tuple
 from docx import Document
 from docx.oxml.ns import qn
+from docx.text.paragraph import Paragraph
 
-from word_document_server.utils.document_utils import get_effective_text
+from word_document_server.utils.document_utils import get_effective_text, indexed_paragraphs
 from word_document_server.engine.find import find as engine_find
 from word_document_server.engine.package import DocxPackage
 from word_document_server.engine.textmodel import visible_text
@@ -44,27 +45,34 @@ def _table_location(story_root, paragraph) -> Optional[str]:
 def get_paragraph_text(doc_path: str, paragraph_index: int) -> Dict[str, Any]:
     """
     Get text from a specific paragraph in a Word document.
-    
+
+    `paragraph_index` is read in the V2 index space -- the one :func:`find_text`
+    reports -- so the paragraph read back is the paragraph the search reported,
+    the content of a block content control included; see
+    :func:`~word_document_server.utils.document_utils.indexed_paragraphs`.  The
+    count in the out-of-range message is the size of that same space.
+
     Args:
         doc_path: Path to the Word document
         paragraph_index: Index of the paragraph to extract (0-based)
-    
+
     Returns:
         Dictionary with paragraph text and metadata
     """
     import os
     if not os.path.exists(doc_path):
         return {"error": f"Document {doc_path} does not exist"}
-    
+
     try:
         doc = Document(doc_path)
-        
+        paragraphs = [Paragraph(p, doc) for p in indexed_paragraphs(doc.element.body)]
+
         # Check if paragraph index is valid
-        if paragraph_index < 0 or paragraph_index >= len(doc.paragraphs):
-            return {"error": f"Invalid paragraph index: {paragraph_index}. Document has {len(doc.paragraphs)} paragraphs."}
-        
-        paragraph = doc.paragraphs[paragraph_index]
-        
+        if paragraph_index < 0 or paragraph_index >= len(paragraphs):
+            return {"error": f"Invalid paragraph index: {paragraph_index}. Document has {len(paragraphs)} paragraphs."}
+
+        paragraph = paragraphs[paragraph_index]
+
         return {
             "index": paragraph_index,
             "text": get_effective_text(paragraph),

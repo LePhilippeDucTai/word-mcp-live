@@ -7,6 +7,7 @@ from typing import Dict, List, Any
 from docx import Document
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.text.paragraph import Paragraph
 from lxml import etree
 
 from word_document_server.engine.errors import EngineError, PackageError
@@ -420,22 +421,31 @@ def get_document_xml(doc_path: str) -> str:
 
 
 def insert_header_near_text(doc_path: str, target_text: str = None, header_title: str = "", position: str = 'after', header_style: str = 'Heading 1', target_paragraph_index: int = None) -> str:
-    """Insert a header (with specified style) before or after the target paragraph. Specify by text or paragraph index. Skips TOC paragraphs in text search."""
+    """Insert a header (with specified style) before or after the target paragraph. Specify by text or paragraph index. Skips TOC paragraphs in text search.
+
+    `target_paragraph_index` is read in the V2 index space -- the one
+    ``find_text`` reports, see :func:`indexed_paragraphs` -- and the text search
+    walks that same space, so the ``(index N)`` of the reply is counted where
+    `target_paragraph_index` would be read.
+    """
     import os
     from docx import Document
     if not os.path.exists(doc_path):
         return f"Document {doc_path} does not exist"
     try:
         doc = Document(doc_path)
+        # The V2 index space, the one find_text reports: python-docx's
+        # doc.paragraphs counts the direct body children only.
+        paragraphs = [Paragraph(pp, doc) for pp in indexed_paragraphs(doc.element.body)]
         found = False
         para = None
         if target_paragraph_index is not None:
-            if target_paragraph_index < 0 or target_paragraph_index >= len(doc.paragraphs):
-                return f"Invalid target_paragraph_index: {target_paragraph_index}. Document has {len(doc.paragraphs)} paragraphs."
-            para = doc.paragraphs[target_paragraph_index]
+            if target_paragraph_index < 0 or target_paragraph_index >= len(paragraphs):
+                return f"Invalid target_paragraph_index: {target_paragraph_index}. Document has {len(paragraphs)} paragraphs."
+            para = paragraphs[target_paragraph_index]
             found = True
         else:
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(paragraphs):
                 # Skip TOC paragraphs
                 if p.style and p.style.name.lower().startswith("toc"):
                     continue
@@ -450,7 +460,7 @@ def insert_header_near_text(doc_path: str, target_text: str = None, header_title
             anchor_index = target_paragraph_index
         else:
             anchor_index = None
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(paragraphs):
                 if p is para:
                     anchor_index = i
                     break
@@ -473,6 +483,11 @@ def insert_line_or_paragraph_near_text(doc_path: str, target_text: str = None, l
     Insert a new line or paragraph (with specified or matched style) before or after the target paragraph.
     You can specify the target by text (first match) or by paragraph index.
     Skips paragraphs whose style name starts with 'TOC' if using text search.
+
+    `target_paragraph_index` is read in the V2 index space -- the one
+    ``find_text`` reports, see :func:`indexed_paragraphs` -- and the text search
+    walks that same space, so the ``(index N)`` of the reply is counted where
+    `target_paragraph_index` would be read.
     """
     import os
     from docx import Document
@@ -480,15 +495,18 @@ def insert_line_or_paragraph_near_text(doc_path: str, target_text: str = None, l
         return f"Document {doc_path} does not exist"
     try:
         doc = Document(doc_path)
+        # The V2 index space, the one find_text reports: python-docx's
+        # doc.paragraphs counts the direct body children only.
+        paragraphs = [Paragraph(pp, doc) for pp in indexed_paragraphs(doc.element.body)]
         found = False
         para = None
         if target_paragraph_index is not None:
-            if target_paragraph_index < 0 or target_paragraph_index >= len(doc.paragraphs):
-                return f"Invalid target_paragraph_index: {target_paragraph_index}. Document has {len(doc.paragraphs)} paragraphs."
-            para = doc.paragraphs[target_paragraph_index]
+            if target_paragraph_index < 0 or target_paragraph_index >= len(paragraphs):
+                return f"Invalid target_paragraph_index: {target_paragraph_index}. Document has {len(paragraphs)} paragraphs."
+            para = paragraphs[target_paragraph_index]
             found = True
         else:
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(paragraphs):
                 # Skip TOC paragraphs
                 if p.style and p.style.name.lower().startswith("toc"):
                     continue
@@ -503,7 +521,7 @@ def insert_line_or_paragraph_near_text(doc_path: str, target_text: str = None, l
             anchor_index = target_paragraph_index
         else:
             anchor_index = None
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(paragraphs):
                 if p is para:
                     anchor_index = i
                     break
@@ -574,6 +592,11 @@ def insert_numbered_list_near_text(doc_path: str, target_text: str = None, list_
         bullet_type: 'bullet' for bullets (•), 'number' for numbers (1,2,3) (default: 'bullet')
     Returns:
         Status message
+
+    `target_paragraph_index` is read in the V2 index space -- the one
+    ``find_text`` reports, see :func:`indexed_paragraphs` -- and the text search
+    walks that same space, so the ``(index N)`` of the reply is counted where
+    `target_paragraph_index` would be read.
     """
     import os
     from docx import Document
@@ -581,15 +604,18 @@ def insert_numbered_list_near_text(doc_path: str, target_text: str = None, list_
         return f"Document {doc_path} does not exist"
     try:
         doc = Document(doc_path)
+        # The V2 index space, the one find_text reports: python-docx's
+        # doc.paragraphs counts the direct body children only.
+        paragraphs = [Paragraph(pp, doc) for pp in indexed_paragraphs(doc.element.body)]
         found = False
         para = None
         if target_paragraph_index is not None:
-            if target_paragraph_index < 0 or target_paragraph_index >= len(doc.paragraphs):
-                return f"Invalid target_paragraph_index: {target_paragraph_index}. Document has {len(doc.paragraphs)} paragraphs."
-            para = doc.paragraphs[target_paragraph_index]
+            if target_paragraph_index < 0 or target_paragraph_index >= len(paragraphs):
+                return f"Invalid target_paragraph_index: {target_paragraph_index}. Document has {len(paragraphs)} paragraphs."
+            para = paragraphs[target_paragraph_index]
             found = True
         else:
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(paragraphs):
                 # Skip TOC paragraphs
                 if p.style and p.style.name.lower().startswith("toc"):
                     continue
@@ -604,7 +630,7 @@ def insert_numbered_list_near_text(doc_path: str, target_text: str = None, list_
             anchor_index = target_paragraph_index
         else:
             anchor_index = None
-            for i, p in enumerate(doc.paragraphs):
+            for i, p in enumerate(paragraphs):
                 if p is para:
                     anchor_index = i
                     break

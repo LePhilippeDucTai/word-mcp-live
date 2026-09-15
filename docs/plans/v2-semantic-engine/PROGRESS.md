@@ -45,11 +45,11 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P11 | Correctif D-015 : CHANGELOG des changements de comportement de J03 | T5 | ✅ | 1 | entrée `[Unreleased]` : 1 `Changed` (fusion) + 2 `Fixed` (garde-fous) ; préambule et historique ≥ 1.6.0 byte à byte intacts (hashes) ; 7/7 acceptations rejouées sur la base |
 | J03-P8 | Review J03 | T2 | ✅ | 1 | round 1 **failed** (1 bloquant : `delete_paragraph`/`add_bookmark` hors espace V2, `find_text → 5` supprimait « Echo ») → J03-P5 review fix 1 ; round 2 sans finding bloquant ; 24 acceptations + 5 Checks verts, 1091 passed / 1 xfailed, 120 outils MCP, `uv lock --check` 0 ; 2 should-fix (D-016, D-017) + 2 optional (D-018, D-019) |
 
-## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (1/7)
+## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (2/7)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
-| J04-P7 | Correctif D-016 : un seul espace d'index pour `paragraph_index` (D-017, D-018, D-019 embarquées) | T3 | ⬜ | 0 | en tête de J04, `depends_on: []` ; 6 des 8 acceptations sont rouges sur le code actuel ; notes de bas de page délibérément hors périmètre (R-003) ; essai 1 `blocked` : `isolation: "worktree"` a branché depuis `main` au lieu de `v2-semantic-engine` (D-003), try rendu — reprendre en worktree manuel |
+| J04-P7 | Correctif D-016 : un seul espace d'index pour `paragraph_index` (D-017, D-018, D-019 embarquées) | T3 | ✅ | 2 | essai 1 `blocked` (try rendu) : `isolation: "worktree"` a branché depuis `main` (D-003) ; essai 2 en worktree manuel, 8/8 acceptations vertes, 1101 passed / 1 xfailed sur la suite complète ; hors `files` nécessaire : ancre de `test_insert_numbered_list_near_text_only_appends_at_the_target` recalculée dans l'espace V2 (`tests/characterization/test_existing_tools.py`) |
 | J04-P1 | Locators et inspection | T3 | ⬜ | 0 | `depends_on: [J04-P7]` (réutilise `_v2_index_map` / `indexed_paragraphs()`) |
 | J04-P2 | Outils `doc_*` texte, enregistrement, rapport structuré | T3 | ⬜ | 0 | |
 | J04-P3 | Plateformes, TOOLS.md généré, garde-fous de dérive, registre corrigé | T4 | ⬜ | 0 | |
