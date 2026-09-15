@@ -786,6 +786,15 @@ def _without_headings(pkg: DocxPackage) -> DocxPackage:
     return pkg
 
 
+def _without_normal(pkg: DocxPackage) -> DocxPackage:
+    """`pkg` with its ``Normal`` style removed, ``docDefaults`` left alone."""
+    root = styles_root(pkg)
+    for style in list(root.findall(W_STYLE)):
+        if (style.get(W_STYLE_ID) or "") == "Normal":
+            root.remove(style)
+    return pkg
+
+
 def test_ensure_heading_style_creates_real_heading_styles():
     from word_document_server.core.styles import ensure_heading_style
 
@@ -817,6 +826,65 @@ def test_ensure_heading_style_leaves_the_headings_a_document_already_has():
     after = get_style(pkg, "Heading1")
     assert after.run_props == before.run_props
     assert after.paragraph_props == before.paragraph_props
+
+
+def test_ensure_heading_style_tolerates_a_style_sheet_without_normal():
+    """D-032: a style sheet with no ``Normal`` cannot support ``basedOn Normal``
+    or ``next Normal``, so ``ensure_heading_style`` must write the rest of the
+    definition anyway rather than raise (J05-P6, finding 1)."""
+    from word_document_server.core.styles import ensure_heading_style
+
+    pkg = _without_normal(_without_headings(_pkg("simple")))
+
+    ensure_heading_style(pkg)
+
+    detail = get_style(pkg, "Heading3")
+    assert detail.info.based_on is None
+    assert detail.info.next_style is None
+    assert detail.info.q_format is True
+    assert detail.info.ui_priority == 9
+    assert detail.paragraph_props["outline_level"] == 2
+    assert detail.run_props["bold"] is True
+    defined = {info.style_id for info in list_styles(pkg)}
+    assert {f"Heading{level}" for level in range(1, 10)} <= defined
+
+
+def test_add_heading_still_inserts_a_heading_when_normal_is_missing(tmp_path):
+    """The reproduction from the J05-P6 review: on a document missing
+    ``Normal``, ``Heading7``, ``Heading8`` and ``Heading9``, ``add_heading``
+    must still add a heading -- at level 7, which ``ensure_heading_style`` has
+    to create without ``basedOn``, and at level 1, whose style already exists
+    and must come out unchanged."""
+    from docx import Document as PDocument
+
+    from word_document_server.tools.content_tools import add_heading
+
+    pkg = _pkg("simple")
+    before = get_style(pkg, "Heading1")
+    root = styles_root(pkg)
+    for style in list(root.findall(W_STYLE)):
+        if (style.get(W_STYLE_ID) or "") in {"Normal", "Heading7", "Heading8", "Heading9"}:
+            root.remove(style)
+    path = tmp_path / "no-normal.docx"
+    pkg.save(path)
+
+    one = _run(add_heading(str(path), "Probe one", 1))
+    seven = _run(add_heading(str(path), "Probe seven", 7))
+
+    assert one == f"Heading 'Probe one' (level 1) added to {path}"
+    assert seven == f"Heading 'Probe seven' (level 7) added to {path}"
+
+    document = PDocument(str(path))
+    last_two = document.paragraphs[-2:]
+    assert [paragraph.text for paragraph in last_two] == ["Probe one", "Probe seven"]
+    assert [paragraph.style.style_id for paragraph in last_two] == ["Heading1", "Heading7"]
+
+    reopened = DocxPackage.open(path)
+    assert get_style(reopened, "Heading7").info.based_on is None
+    after = get_style(reopened, "Heading1")
+    assert after.run_props == before.run_props
+    assert after.paragraph_props == before.paragraph_props
+    assert validate_package(path) == []
 
 
 def test_ensure_heading_style_works_on_a_python_docx_document(tmp_path):

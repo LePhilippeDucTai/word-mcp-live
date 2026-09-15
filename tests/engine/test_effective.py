@@ -319,6 +319,37 @@ def test_a_toggle_from_a_style_outside_the_minimal_model_still_reaches_the_repor
     assert outline == {"value": True, "source": "style:XorRoot"}
 
 
+@pytest.mark.parametrize(
+    ("attr", "expected"),
+    [
+        ('w:val="0"', False),
+        ('w:val="false"', False),
+        ('w:val="off"', False),
+        ('w:val="1"', True),
+        ('w:val="true"', True),
+        ('w:val="on"', True),
+        ("", True),
+    ],
+)
+def test_the_extra_toggles_read_off_the_way_the_model_toggles_do(attr, expected):
+    """§17.7.3's own toggles (``vanish``, outside the minimal model) must decode
+    exactly as the model's own toggles (``bold``) do: both now go through
+    :func:`~word_document_server.engine.styles._toggle_value`, so there is one
+    three-state vocabulary rather than two lists maintained separately."""
+    pkg = _package(
+        body=[
+            (
+                f"<w:p><w:r><w:rPr><w:b {attr}/><w:vanish {attr}/></w:rPr>"
+                "<w:t>Toggle probe.</w:t></w:r></w:p>"
+            )
+        ]
+    )
+    report = _report(pkg, {"find": "Toggle probe."})
+
+    assert report["run"]["bold"] == {"value": expected, "source": "direct"}
+    assert report["run"]["vanish"] == {"value": expected, "source": "direct"}
+
+
 # --------------------------------------------------------------------------------------
 # Paragraph properties, inherited one setting at a time
 # --------------------------------------------------------------------------------------
