@@ -1,4 +1,4 @@
-"""Two invariants the tool registry must hold.
+"""Three invariants the tool registry must hold.
 
 *every registered tool has a platform entry*
     :data:`~word_document_server.tools.platforms.PLATFORMS` is what
@@ -18,6 +18,14 @@
     by :func:`~word_document_server.tools.v2.registry.register_v2_tools` and
     have no such wrapper in ``main.py``, so they are out of scope for the
     second check -- there is nothing to compare a wrapper against.
+
+*every module of ``tools/v2`` exports ``TOOLS``* (D-024)
+    :func:`~word_document_server.tools.v2.registry.discover_tool_specs` treats
+    a module with no ``TOOLS`` list as simply not a tool module -- which is
+    exactly how ``doc_capabilities`` (J04-P3) went unregistered until this
+    part: it defined the function but never exported it. This test iterates
+    the modules the package actually has, not a hardcoded list of names, so it
+    stays meaningful as J05-P1..P5 and J06 add new ``tools/v2/*.py`` modules.
 """
 
 from __future__ import annotations
@@ -33,6 +41,7 @@ import pytest
 import word_document_server.main as main_module
 from word_document_server.main import mcp, register_tools
 from word_document_server.tools.platforms import PLATFORMS
+from word_document_server.tools.v2.registry import _modules
 
 
 def _registered_tools() -> list[Any]:
@@ -112,3 +121,18 @@ def test_wrapper_forwards_every_implementation_parameter(tool: Any):
         f"{tool.name}: implementation parameter(s) {sorted(missing_in_call)} "
         "are not forwarded in the wrapper's call in main.py"
     )
+
+
+def test_every_v2_module_exports_tools():
+    """A module of ``tools/v2`` with no ``TOOLS`` is invisible to discovery.
+
+    ``_modules()`` (the same iteration :func:`discover_tool_specs` uses)
+    already skips ``registry`` itself and anything starting with ``_``
+    (``__init__``); every module it yields is a module that means to expose at
+    least one tool, so its ``TOOLS`` list must exist and not be empty.
+    """
+    modules = list(_modules())
+    assert modules, "expected at least one tools/v2 module besides registry"
+    for module in modules:
+        tools = getattr(module, "TOOLS", None)
+        assert tools, f"{module.__name__} exports no non-empty TOOLS list"

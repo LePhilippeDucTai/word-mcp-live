@@ -214,6 +214,49 @@ def test_a_malformed_batch_is_refused_before_anything_is_touched(fixture_docx, e
 
 
 # --------------------------------------------------------------------------
+# D-024: an edit's keys are validated before anything is read or written
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("edit", "expected_in_message"),
+    [
+        # The exact payload proven in the D-024 review: `content` instead of
+        # `text` on a `replace`, which `.get("text", "")` would otherwise read
+        # as an empty string and apply as a silent deletion.
+        (
+            {"locator": {"paragraph": 1}, "content": "typo for 'text'"},
+            ["content"],
+        ),
+        # An unknown key on a `patch` payload.
+        (
+            {"locator": {"paragraph": 1}, "patch": {"bold": True}, "action": "replace"},
+            ["action"],
+        ),
+        # No `locator` at all.
+        ({"text": "no locator here"}, ["locator"]),
+    ],
+    ids=["content-instead-of-text", "action-on-a-patch-edit", "missing-locator"],
+)
+def test_an_edit_with_an_unknown_key_is_refused_and_writes_nothing(
+    fixture_docx, edit, expected_in_message
+):
+    path = fixture_docx("simple")
+    before_bytes = path.read_bytes()
+    before_snapshot = snapshot(path)
+
+    report = apply_edits(path, [edit])
+
+    assert report["status"] == "error"
+    assert report["code"] == "invalid_argument"
+    assert "edit 0" in report["message"]
+    for fragment in expected_in_message:
+        assert fragment in report["message"]
+    assert path.read_bytes() == before_bytes
+    assert_unchanged_except(before_snapshot, snapshot(path))
+
+
+# --------------------------------------------------------------------------
 # dry_run
 # --------------------------------------------------------------------------
 
