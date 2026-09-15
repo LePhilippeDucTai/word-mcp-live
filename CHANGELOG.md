@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-15
+
+This release is the first published under the name `word-mcp-semantic`. The project is a
+fork of [ykarapazar/word-mcp-live](https://github.com/ykarapazar/word-mcp-live) rebuilt
+around a new OOXML engine; the two are separate distributions and their version numbers
+are unrelated. Versions 1.0.0 through 1.5.1 below are the upstream project's history,
+kept for provenance, and their links point at the upstream repository.
+
 ### Added
 - **The OOXML engine** (`word_document_server/engine/`) — a new, synchronous `lxml` layer under the OPC implementation `python-docx` ships, with no MCP or Word dependency: atomic package open/save (`package`), the single definition of what a paragraph's visible text is and where each character in it sits (`textmodel`), safe multi-run editing over `[start, end)` that refuses rather than approximates when a range cuts through a field or an image (`ranges`), schema-ordered direct formatting (`format`), paragraph search (`find`) and tracked-change recording, listing, accepting and rejecting (`revisions`). Every tool migrated onto it in the entries below, and every `doc_*` tool listed in README.md's "The doc_* semantic surface", is built on this engine; see README.md's Architecture section for the full layering.
 - **`doc_audit`** — a new `doc_*` tool: reads a document and reports, read-only, what a human or Word would trip over in it — paragraphs that read like a heading but carry no heading style, direct formatting overriding a style, dangling `numId`/`abstractNumId` references, bookmark and comment ranges missing one end, unused custom styles, near-duplicate style names, tracked changes by author, and which fields are present and whether they are marked dirty. Each finding carries the locator of the place it is about.
@@ -156,6 +164,7 @@ These 4 tools require Windows COM APIs with no AppleScript/JXA equivalent:
 - Document management, content editing, formatting, tables, extraction
 - FastMCP server with stdio transport
 
+[2.0.0]: https://github.com/LePhilippeDucTai/word-mcp-semantic/releases/tag/v2.0.0
 [1.5.1]: https://github.com/ykarapazar/word-mcp-live/compare/v1.5.0...v1.5.1
 [1.5.0]: https://github.com/ykarapazar/word-mcp-live/compare/v1.4.1...v1.5.0
 [1.4.1]: https://github.com/ykarapazar/word-mcp-live/compare/v1.4.0...v1.4.1

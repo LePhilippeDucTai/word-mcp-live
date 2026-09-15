@@ -1,12 +1,12 @@
-# Contributing to word-mcp-live
+# Contributing to word-mcp-semantic
 
 Thanks for your interest in contributing! This guide covers the basics of setting up a development environment and adding new tools.
 
 ## Development Setup
 
 ```bash
-git clone https://github.com/ykarapazar/word-mcp-live.git
-cd word-mcp-live
+git clone https://github.com/LePhilippeDucTai/word-mcp-semantic.git
+cd word-mcp-semantic
 uv sync
 ```
 
@@ -172,7 +172,22 @@ bash scripts/check.sh
 ```
 
 Tests are marked `libreoffice` (requires a LibreOffice installation) and `characterization`
-(pinning existing behavior) where relevant.
+(pinning existing behavior) where relevant. The `libreoffice` ones skip themselves when
+`soffice` is not on the machine, so a run without it is green but has covered less.
+
+## Continuous Integration
+
+`.github/workflows/ci.yml` runs on every push to `main` and every pull request:
+
+- the full suite on Linux, macOS and Windows × Python 3.11, 3.12 and 3.13;
+- the suite again on Linux with LibreOffice Writer installed, so the `libreoffice` tests
+  actually execute instead of skipping;
+- `ruff`, `scripts/gen_tools_md.py --check`, `uv lock --check` and `uv build` — the same
+  checks `scripts/check.sh` runs locally.
+
+`.github/workflows/release.yml` attaches the sdist and the `py3-none-any` wheel to a
+published GitHub Release, and refuses a release whose tag disagrees with the version in
+`pyproject.toml`. `.github/workflows/publish.yml` uploads to PyPI and is manual only.
 
 ## Pull Request Guidelines
 

@@ -1,4 +1,6 @@
-# word-mcp-live
+# word-mcp-semantic
+
+[![CI](https://github.com/LePhilippeDucTai/word-mcp-semantic/actions/workflows/ci.yml/badge.svg)](https://github.com/LePhilippeDucTai/word-mcp-semantic/actions/workflows/ci.yml)
 
 **A semantic engine for Word documents, exposed over [MCP](https://modelcontextprotocol.io/).**
 
@@ -391,8 +393,8 @@ to cover `word_document_server/engine/`, `tests/` and `scripts/` only — a gree
 This server runs from a clone. Python 3.11 or later.
 
 ```bash
-git clone https://github.com/ykarapazar/word-mcp-live.git
-cd word-mcp-live
+git clone https://github.com/LePhilippeDucTai/word-mcp-semantic.git
+cd word-mcp-semantic
 uv sync            # or: pip install -e .
 ```
 
@@ -401,9 +403,11 @@ and `Pillow` come along on Windows only, for the live tools. `uv` is typically i
 under `~/.local/bin`; prefix commands with `PATH="$HOME/.local/bin:$PATH"` if that is not
 on your `PATH`.
 
-> The PyPI package named `word-mcp-live` is the upstream project this repository forked
-> from. It does not contain the OOXML engine or the `doc_*` tools described here. Install
-> from this clone.
+> This project is a fork of [`ykarapazar/word-mcp-live`](https://github.com/ykarapazar/word-mcp-live),
+> rebuilt around an OOXML engine the upstream does not have. The two are separate
+> distributions: the PyPI package named `word-mcp-live` is the upstream project and
+> contains neither the engine nor the `doc_*` tools described here. `word-mcp-semantic`
+> is not on PyPI yet — install from this clone.
 
 ### MCP client configuration
 
@@ -415,7 +419,7 @@ it through `uv`, with the clone as the working directory:
   "mcpServers": {
     "word": {
       "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/word-mcp-live", "word_mcp_server"],
+      "args": ["run", "--directory", "/absolute/path/to/word-mcp-semantic", "word_mcp_server"],
       "env": {
         "MCP_AUTHOR": "Your Name",
         "MCP_AUTHOR_INITIALS": "YN"
@@ -471,4 +475,4 @@ Libraries: [python-docx](https://python-docx.readthedocs.io/) ·
 
 MIT — see [LICENSE](LICENSE).
 
-<!-- mcp-name: io.github.ykarapazar/word-mcp-live -->
+<!-- mcp-name: io.github.LePhilippeDucTai/word-mcp-semantic -->

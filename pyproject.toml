@@ -3,14 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "word-mcp-live"
-version = "1.6.20"
-description = "MCP server for Microsoft Word — live editing on Windows (COM) and macOS (JXA), plus cross-platform python-docx tools"
+name = "word-mcp-semantic"
+version = "2.0.0"
+description = "MCP server for Microsoft Word — a semantic OOXML engine with locator-based doc_* tools, plus live editing on Windows (COM) and macOS (JXA)"
 readme = "README.md"
 license = {file = "LICENSE"}
 authors = [
-    {name = "GongRzhe", email = "gongrzhe@gmail.com"},
-    {name = "Yüce Karapazar"}
+    {name = "Philippe Lê"}
 ]
 keywords = ["mcp", "word", "docx", "microsoft-word", "document", "com-automation", "python-docx", "ai", "llm", "claude"]
 classifiers = [
@@ -38,10 +37,10 @@ dev = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/ykarapazar/word-mcp-live"
-"Bug Tracker" = "https://github.com/ykarapazar/word-mcp-live/issues"
-"Changelog" = "https://github.com/ykarapazar/word-mcp-live/blob/main/CHANGELOG.md"
-"Documentation" = "https://github.com/ykarapazar/word-mcp-live#readme"
+"Homepage" = "https://github.com/LePhilippeDucTai/word-mcp-semantic"
+"Bug Tracker" = "https://github.com/LePhilippeDucTai/word-mcp-semantic/issues"
+"Changelog" = "https://github.com/LePhilippeDucTai/word-mcp-semantic/blob/main/CHANGELOG.md"
+"Documentation" = "https://github.com/LePhilippeDucTai/word-mcp-semantic#readme"
 
 [tool.hatch.build.targets.wheel]
 only-include = [

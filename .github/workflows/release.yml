@@ -1,0 +1,60 @@
+name: Release artifacts
+
+# Attaches the built distributions to the GitHub Release. The package is pure
+# Python, so `uv build` produces exactly two files that cover every platform:
+# a source distribution and a `py3-none-any` wheel. There is no per-platform
+# artifact to build -- the Windows-only dependencies (pywin32, Pillow) carry
+# environment markers resolved at install time, not at build time.
+#
+# Publishing to PyPI is a separate, manual workflow (publish.yml).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and attach distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Build
+        run: uv build
+
+      - name: Check the distributions are well-formed
+        run: uvx twine check dist/*
+
+      # The declared version is the single source of truth (tests/test_version_sync.py
+      # keeps its four declarations in step); refuse a release whose tag disagrees.
+      - name: Tag matches the declared version
+        if: github.event_name == 'release'
+        run: |
+          declared="$(python3 -c 'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$declared" != "$tag" ]; then
+            echo "::error::release tag $GITHUB_REF_NAME declares $tag but pyproject.toml says $declared"
+            exit 1
+          fi
+          echo "tag $GITHUB_REF_NAME matches the declared version $declared"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distributions
+          path: dist/
+
+      - name: Attach the distributions to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber

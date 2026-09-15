@@ -29,7 +29,7 @@ Paste the full error message or traceback here
 - OS: [e.g. Windows 11, macOS 14]
 - Word version: [e.g. Microsoft 365, Word 2021]
 - Python version: [e.g. 3.11.8]
-- word-mcp-live version: [e.g. 1.2.0]
+- word-mcp-semantic version: [e.g. 2.0.0]
 - MCP client: [e.g. Claude Desktop, Claude Code, Cursor]
 
 **Additional context**

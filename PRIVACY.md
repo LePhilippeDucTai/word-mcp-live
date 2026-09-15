@@ -41,10 +41,10 @@ The server reads the following optional environment variables. These are stored 
 ## Open Source
 
 This project is open source under the MIT License. You can audit the full source code at:
-https://github.com/ykarapazar/word-mcp-live
+https://github.com/LePhilippeDucTai/word-mcp-semantic
 
 ## Contact
 
 For privacy questions or concerns:
-- GitHub Issues: https://github.com/ykarapazar/word-mcp-live/issues
-- Maintainer: Yüce Karapazar
+- GitHub Issues: https://github.com/LePhilippeDucTai/word-mcp-semantic/issues
+- Maintainer: Philippe Lê

@@ -1,0 +1,106 @@
+name: CI
+
+# Free on this repository: GitHub Actions bills nothing for standard runners on
+# public repositories, Windows and macOS included. Making the repository private
+# would start consuming the account's minute quota, at 2x (Windows) and 10x
+# (macOS) the Linux rate.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} · Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      # The 16 tests marked `libreoffice` skip themselves when soffice is absent
+      # (tests/support/libreoffice.py), so this runs everywhere and covers them
+      # in the `libreoffice` job below.
+      - name: Run the test suite
+        run: uv run --frozen pytest tests/ -q
+
+  libreoffice:
+    name: Fidelity suite (LibreOffice)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LibreOffice Writer
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-writer
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      # Prove the marked tests actually ran rather than skipped: the whole point
+      # of this job is that a real Word-compatible renderer reopens what the
+      # engine wrote.
+      - name: Run the LibreOffice-backed tests
+        run: uv run --frozen pytest tests/ -q -m libreoffice
+
+      - name: Run the full suite
+        run: uv run --frozen pytest tests/ -q
+
+  checks:
+    name: Lint, docs, lock and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the locked environment
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run --frozen ruff check .
+
+      - name: TOOLS.md and README counts match the registry
+        run: uv run --frozen python scripts/gen_tools_md.py --check
+
+      - name: Lockfile is current
+        run: uv lock --check
+
+      - name: Build the sdist and wheel
+        run: uv build
+
+      - name: Show what was built
+        run: ls -l dist/
