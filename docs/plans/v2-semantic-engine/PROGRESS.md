@@ -86,8 +86,8 @@ Updated 2026-09-15 · s10 · base main · ⬜ todo 🔄 wip ✅ done ❌ failed 
 
 - **✅ Plan complete — 50/50 parts** (49 ✅, aucune ⏭). Les 4 Checks de PLAN.md sont verts sur `main` au 2026-09-15 : `pytest tests/ -q` **1799 passed** (245 s, marqueurs `libreoffice` réellement exécutés), `uv build` 2 artefacts, `ruff check .` clean, `uv lock --check` 0 ; `gen_tools_md.py --check` confirme TOOLS.md et README en phase. **137 outils dont 17 `doc_*`.**
 - **Aucune décision en attente** : la file de DECISION.md est vide, D-036 a été tranchée au démarrage de s10 (→ R-012 dans LONG_TERM_RECO.md, aucune part créée).
-- **Reste à faire, hors plan** : le plan ne prescrit plus rien. Le point d'intégration amont (R-005 : le nom PyPI `word-mcp-live` appartient à `ykarapazar` ; proposer J01–J06 en PR amont ou choisir un nom de fork) est une décision produit, pas une part — c'est la seule lecture cohérente de la ligne « ouvrir une pull request » laissée par s9, `main` étant déjà la base et les 50 parts y étant fusionnées.
-- **12 recommandations long terme** restent dans LONG_TERM_RECO.md (R-001..R-012), dont R-003 (outils de notes hors espace d'index V2, écart assumé D-016) et R-012 (`w:rPrChange`/`w:pPrChange` jamais retirés par `accept`/`reject`, D-036).
+- **Reste à faire, hors plan** : le plan ne prescrit plus rien. R-005 est **tranchée et exécutée le 2026-09-15** (D-037) : nom de fork `word-mcp-semantic`, dépôt renommé, versions à 2.0.0, CI GitHub Actions sur trois plateformes, release `v2.0.0` publiée avec ses artefacts. **La publication PyPI reste à faire** — le user l'a remise à plus tard ; elle demande une configuration Trusted Publishing sur pypi.org, puis un lancement manuel de `publish.yml`.
+- **11 recommandations long terme** restent dans LONG_TERM_RECO.md (R-001..R-004, R-006..R-012 ; R-005 close, R-009 réduite à son volet Docker), dont R-003 (outils de notes hors espace d'index V2, écart assumé D-016) et R-012 (`w:rPrChange`/`w:pPrChange` jamais retirés par `accept`/`reject`, D-036).
 - Orchestrator: opus/high (ligne J06 de PLAN.md) — sans objet, le plan est clos.
 - Decision: aucune.
 
