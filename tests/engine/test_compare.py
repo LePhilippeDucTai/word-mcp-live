@@ -123,6 +123,24 @@ def test_doc_compare_is_discovered_and_read_only():
     assert "v2" in spec.tags and "read" in spec.tags
 
 
+def test_a_file_that_is_not_a_package_is_reported_by_doc_compare(tmp_path):
+    good = tmp_path / "simple.docx"
+    good.write_bytes(build("simple"))
+    not_a_zip = tmp_path / "not-a-zip.docx"
+    not_a_zip.write_bytes(b"this is not a zip")
+    truncated = tmp_path / "truncated.docx"
+    truncated.write_bytes(build("simple")[:1024])
+
+    for bad, other in ((not_a_zip, good), (truncated, good)):
+        report_first = call("doc_compare", str(bad), str(other))
+        assert report_first["status"] == "error"
+        assert report_first["code"] == "package_error"
+
+        report_second = call("doc_compare", str(other), str(bad))
+        assert report_second["status"] == "error"
+        assert report_second["code"] == "package_error"
+
+
 # --------------------------------------------------------------------------
 # doc_compare: identical documents
 # --------------------------------------------------------------------------
