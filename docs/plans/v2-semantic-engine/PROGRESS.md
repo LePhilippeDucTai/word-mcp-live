@@ -45,7 +45,7 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J03-P11 | Correctif D-015 : CHANGELOG des changements de comportement de J03 | T5 | ✅ | 1 | entrée `[Unreleased]` : 1 `Changed` (fusion) + 2 `Fixed` (garde-fous) ; préambule et historique ≥ 1.6.0 byte à byte intacts (hashes) ; 7/7 acceptations rejouées sur la base |
 | J03-P8 | Review J03 | T2 | ✅ | 1 | round 1 **failed** (1 bloquant : `delete_paragraph`/`add_bookmark` hors espace V2, `find_text → 5` supprimait « Echo ») → J03-P5 review fix 1 ; round 2 sans finding bloquant ; 24 acceptations + 5 Checks verts, 1091 passed / 1 xfailed, 120 outils MCP, `uv lock --check` 0 ; 2 should-fix (D-016, D-017) + 2 optional (D-018, D-019) |
 
-## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (6/7)
+## J04 — Surface V2 : adressage, inspection, dry-run, capacités, docs (7/7)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -55,7 +55,7 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J04-P3 | Plateformes, TOOLS.md généré, garde-fous de dérive, registre corrigé | T4 | ✅ | 1 | `PLATFORMS` classé par lecture du code réel (31 macOS / 14 Windows-only sur les 45 live, écart avec l'estimation de brief documenté, D-023) ; branché avant le merge de J04-P5 : `doc_apply_edits` manquant de `PLATFORMS`/`TOOLS.md`, corrigé par l'orchestrateur après merge (1 ligne + régénération) ; suite complète 1383 passed, 1 xfailed, ruff et build verts |
 | J04-P4 | Plantages macOS prouvés par lecture | T4 | ✅ | 1 | `depends_on: []` ; worktree branché par erreur depuis `main` (D-003) mais fichiers jamais touchés par `v2-semantic-engine` (`git log v2-semantic-engine ^main -- <files>` vide) : diff-stat vérifié limité aux 4 `files`, merge propre, acceptations rejouées vertes sur la base |
 | J04-P5 | Lot atomique `doc_apply_edits` | T4 | ✅ | 1 | `doc_apply_edits`, réutilise les helpers `text.py`/`registry.py` ; 13 tests ; index de l'édition fautive préfixé au message (`edit {index}: …`) faute de place dans l'enveloppe générique |
-| J04-P6 | Review J04 | T2 | 🔄 | 1 | `depends_on` étendu à J04-P7 ; relit l'alignement, les notes laissées à l'écart, la 5e puce, la borne d'`add_bookmark` et les 2 formes de `search_and_replace` ; range `c0e98c8..HEAD` |
+| J04-P6 | Review J04 | T2 | ✅ | 1 | round 1 sans finding bloquant (status: done) ; 20 acceptations + 4 Checks verts, 1396 passed / 1 xfailed, build et `uv lock --check` verts ; 2 should-fix (`doc_capabilities` jamais enregistré ; `doc_apply_edits` efface un paragraphe en silence sur une clé de charge mal orthographiée — data loss prouvé par exécution) + 2 optional (`highlight_color` hors 0-16 avale l'erreur ; enveloppe d'erreur générique du wrapper construite avant capture du TypeError applicatif) → D-024 |
 
 ## J05 — Styles, thème, format effectif, numérotation, styles de tableau (0/6)
 
@@ -79,13 +79,14 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 
 ## Next session
 
-- Ready: **J04-P7 en premier** (T3, `depends_on: []`, tourne seule — J04-P1 en dépend et J04-P2..P5 partagent `content_tools.py`/`layout_tools.py` avec elle). Puis J04-P1..P5 (cap de vague 4, `files` disjoints), J04-P6 en revue.
-- D-020 (merge de `v2-semantic-engine` sur `main`) est à trancher au démarrage : la revue J03-P8 est verte, ce qui lève la condition posée par D-014, mais J04-P7 corrige encore la surface publique de 5 outils.
-- Orchestrator: best/max (D-020 et D-021 en attente)
-- Decision: D-020 (détaillée dans DECISION.md), puis D-021 en file
+- **J04 complet (7/7)**, revue sans finding bloquant. Ready pour J05 : **J05-P1** et **J05-P4** (`depends_on: []`, `files` disjoints, vague possible) ; J05-P2/P3/P5 en dépendent, J05-P6 (revue) ferme le jalon.
+- Trancher au démarrage en priorité, avant toute dispatch : D-024 (2 should-fix de la revue J04-P6, dont une perte de données silencieuse sur `doc_apply_edits`) et D-021 (message non déterministe d'`insert_line_or_paragraph_near_text`) — ni l'un ni l'autre ne bloque J05, mais D-024 mérite une part corrective avant que J05/J06 ne construisent davantage sur `tools/v2/`.
+- Orchestrator: opus/high (ligne J05 de PLAN.md), sauf plan update éventuel après D-024.
+- Decision: D-021 puis D-024 (détaillées dans DECISION.md, ordre de la file).
 
 ## Log
 
+- 2026-09-15 s7: D-020 tranchée au démarrage (user) : merge sur `main` reporté après J04-P7 ; **J04 complet (7/7)** — J04-P4 ✅ (3 plantages macOS), J04-P7 ✅ en essai 2 (essai 1 `blocked` : `isolation: "worktree"` branche depuis `main`, D-003, try rendu), J04-P1 ✅ (locators, inspect ; D-022 codes d'erreur soulignés), J04-P2 ✅ (4 outils `doc_*`, 120 → 124), J04-P5 ✅ (`doc_apply_edits`), J04-P3 ✅ (`PLATFORMS`, TOOLS.md généré ; D-023 classification par lecture du code ; correction orchestrateur après merge : `doc_apply_edits` manquait de `PLATFORMS`, ajouté + régénéré), revue J04-P6 ✅ round 1 sans finding bloquant (2 should-fix, 2 optional → D-024) ; suite 1 → 1396 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; résidu de lint J04-P4 corrigé en séance (import non trié, hors `files` de toute part) → D-021 et D-024 en file pour la clôture
 - 2026-09-10 s6: J03-P11 ✅ (entrée `[Unreleased]`, 7/7 acceptations) ; revue J03-P8 round 1 **failed** sur 1 bloquant — `find_text_in_document` rendait un index V2 depuis J03-P1 tandis que `delete_paragraph` et `add_bookmark` indexaient les enfants du corps, donc `find_text → 5` puis `delete_paragraph(5)` supprimait le mauvais paragraphe en répondant « deleted successfully », dès qu'un `w:sdt` de bloc était présent (celui qu'`add_table_of_contents` insère lui-même) → J03-P5 review fix 1 (T2, essai 3) : `indexed_paragraphs()` réutilise `_v2_index_map`, retrait par `getparent().remove()`, `w:sectPr` reporté sur le précédent de l'espace V2, `replace_content` transmis par le wrapper `main.py`, 4e puce au CHANGELOG, 4 tests rouges-puis-verts ; revue round 2 sans finding bloquant ; **J03 complet (11/11)** ; suite 1087 → 1091 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; 4 décisions tranchées à la clôture (D-016 espace d'index sans les notes ; D-017 5e puce du CHANGELOG ; D-018 borne inférieure d'`add_bookmark` ; D-019 séparateur de `search_and_replace`) → **+J04-P7** en tête de J04, J04-P1 et J04-P6 en dépendent ; D-020 (merge sur `main`) et D-021 (message non déterministe d'`insert_line_or_paragraph_near_text`) laissées en file
 - 2026-09-10 s5: reprise de la s4 coupée en vol (PROGRESS.md non commité, worktree J03-P5 sans commit → essai 1 compté, 775 insertions sauvées en patch) ; D-013 tranchée au démarrage → +J03-P10 ✅ (profil `soffice` jetable, faux rouge sous parallélisme corrigé) ; J03-P5 ✅ en essai 2 (patch de reprise relu, 4 défauts réels corrigés) ; J03-P7 ✅ (hook de sauvegarde supprimé, écritures atomiques, `msoffcrypto.exceptions.InvalidFormatError` inexistant corrigé) ; **J03 à 9/10, seule la revue J03-P8 reste** ; suite 830 → 1087 passed, 1 xfailed ; lint, build et `uv lock --check` verts ; D-014 (user) : `main` intact jusqu'à la revue
 - 2026-09-10 s5 (clôture): D-015 tranchée — le CHANGELOG des 3 changements de comportement de J03 n'était dans les `files` d'aucune part (D-011 le confiait à J03-P7, dispatchée sans, ou à J03-P8, qui est une revue) → +J03-P11 (T5, `CHANGELOG.md` seul), J03-P8 en dépend
