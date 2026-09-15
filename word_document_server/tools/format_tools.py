@@ -118,12 +118,19 @@ async def format_text(filename: str, paragraph_index: int, start_pos: int, end_p
         return f"Failed to format text: {str(e)}"
 
 
-async def create_custom_style(filename: str, style_name: str, 
+async def create_custom_style(filename: str, style_name: str,
                              bold: Optional[bool] = None, italic: Optional[bool] = None,
                              font_size: Optional[int] = None, font_name: Optional[str] = None,
                              color: Optional[str] = None, base_style: Optional[str] = None) -> str:
-    """Create a custom style in the document.
-    
+    """Create a custom paragraph style in the document.
+
+    The style is written to styles.xml as a real w:style: a w:styleId derived
+    from the name, the w:basedOn reference checked against the document, and the
+    children in schema order. Nothing else in the package is touched.
+    Creating a style that is already defined leaves it exactly as it is rather
+    than redefining it — redefining a style reformats every paragraph that names
+    it, which is what word_doc_update_style is for.
+
     Args:
         filename: Path to the Word document
         style_name: Name for the new style
@@ -131,22 +138,31 @@ async def create_custom_style(filename: str, style_name: str,
         italic: Set text italic (True/False)
         font_size: Font size in points
         font_name: Font name/family
-        color: Text color (e.g., 'red', 'blue')
-        base_style: Optional existing style to base this on
+        color: Text color — named ("red", "blue") or hex ("FF0000")
+        base_style: Optional existing style to base this on, by id or by name
     """
     filename = ensure_docx_extension(filename)
-    
+
     if not os.path.exists(filename):
         return f"Document {filename} does not exist"
-    
+
     # Check if file is writeable
     is_writeable, error_message = check_file_writeable(filename)
     if not is_writeable:
         return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
+
+    # An unreadable colour is refused here rather than silently written as
+    # black, which is what the caller would never notice.
+    if color and resolve_color(color) is None:
+        return (f"Invalid color '{color}'. Use a hex value such as 'FF0000', 'auto', "
+                f"or one of: {', '.join(sorted(COLOR_NAMES))}.")
+
     try:
         async with get_file_lock(filename):
-            doc = Document(filename)
+            # The package, not python-docx's Document: saving through the latter
+            # rewrites every part it understands, and a style is no reason to
+            # touch the rest of the document.
+            package = DocxPackage.open(filename)
 
             # Build font properties dictionary
             font_properties = {}
@@ -162,15 +178,15 @@ async def create_custom_style(filename: str, style_name: str,
                 font_properties['color'] = color
 
             # Create the style
-            new_style = create_style(
-                doc,
+            create_style(
+                package,
                 style_name,
                 WD_STYLE_TYPE.PARAGRAPH,
                 base_style=base_style,
                 font_properties=font_properties
             )
 
-            doc.save(filename)
+            package.save(filename)
         return f"Style '{style_name}' created successfully."
     except Exception as e:
         return f"Failed to create style: {str(e)}"

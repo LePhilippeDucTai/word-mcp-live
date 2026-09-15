@@ -683,18 +683,13 @@ def test_add_header_footer_clears_existing_header_content(combined_path):
     ), "existing header content (including the picture run) should survive"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "core.styles.create_style checks for an existing style with "
-        "doc.styles.get_by_id(style_name, WD_STYLE_TYPE.PARAGRAPH), but "
-        "get_by_id never raises: it returns the type's default style "
-        "('Normal') when the id is not found. The except: branch that would "
-        "call doc.styles.add_style is therefore never reached, so no style "
-        "is ever written to styles.xml even though the tool always reports "
-        "success."
-    ),
-)
+# Was xfail(strict=True) until J05-P3: core.styles.create_style guarded the
+# creation with doc.styles.get_by_id(style_name, WD_STYLE_TYPE.PARAGRAPH), but
+# get_by_id never raises -- it returns the type's default style ('Normal') when
+# the id is unknown -- so the except: branch that called add_style was never
+# reached and no style was ever written, even though the tool always reported
+# success. It now writes the w:style itself through engine.styles.create_style.
+# See tests/engine/test_styles_write.py.
 def test_create_custom_style_never_creates_the_style(combined_path):
     result = _run(create_custom_style(str(combined_path), "ProbeStyle", bold=True))
     assert "created successfully" in result
