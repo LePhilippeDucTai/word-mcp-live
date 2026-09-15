@@ -13,7 +13,12 @@
 - Le même outil n'applique plus le repli sur le style `Normal` quand `List Paragraph` est absent du document.
 - `insert_line_or_paragraph_near_text` termine sa réponse par `with style 'Normal'.` au lieu du `repr` de l'objet `_ParagraphStyle` (D-021) — la chaîne était différente à chaque exécution, donc non parsable.
 
-Les signatures et la forme des réponses restent inchangées : l'invariant de compatibilité du PLAN.md est tenu. J05-P1..P3, P5 et P7 peuvent en ajouter d'autres d'ici la clôture ; la question se pose une fois pour l'ensemble de J05.
+Et trois autres rapportés par le worker de J05-P3 :
+- `core.styles.ensure_heading_style` et `core.styles.create_style` écrivent réellement le style au lieu d'être des no-op ; `create_style` rend désormais un `StyleInfo` au lieu d'un `Style` python-docx.
+- `create_custom_style` (outil MCP) écrit vraiment le style dans `styles.xml` et refuse une couleur illisible au lieu de l'ignorer.
+- Le xfail de caractérisation de `create_custom_style` a disparu : l'outil n'est plus un no-op.
+
+Les signatures et la forme des réponses des outils MCP restent inchangées : l'invariant de compatibilité du PLAN.md est tenu. La question se pose une fois pour l'ensemble de J05.
 
 **Options.**
 1. *(Recommandée)* Part `CHANGELOG.md` dédiée en fin de J05 (T5, S, `CHANGELOG.md` seul), dispatchable en parallèle de la revue, couvrant tous les changements de J05 relevés au moment où elle part. Motif : c'est la solution que D-015 a retenue pour J03 et qui a marché ; un changement de comportement non écrit est une rupture d'API silencieuse pour l'appelant, et `main` hérite de J05 dès la clôture de cette session (D-026).
