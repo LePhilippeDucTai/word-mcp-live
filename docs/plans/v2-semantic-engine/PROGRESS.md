@@ -55,7 +55,7 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J04-P3 | Plateformes, TOOLS.md généré, garde-fous de dérive, registre corrigé | T4 | ✅ | 1 | `PLATFORMS` classé par lecture du code réel (31 macOS / 14 Windows-only sur les 45 live, écart avec l'estimation de brief documenté, D-023) ; branché avant le merge de J04-P5 : `doc_apply_edits` manquant de `PLATFORMS`/`TOOLS.md`, corrigé par l'orchestrateur après merge (1 ligne + régénération) ; suite complète 1383 passed, 1 xfailed, ruff et build verts |
 | J04-P4 | Plantages macOS prouvés par lecture | T4 | ✅ | 1 | `depends_on: []` ; worktree branché par erreur depuis `main` (D-003) mais fichiers jamais touchés par `v2-semantic-engine` (`git log v2-semantic-engine ^main -- <files>` vide) : diff-stat vérifié limité aux 4 `files`, merge propre, acceptations rejouées vertes sur la base |
 | J04-P5 | Lot atomique `doc_apply_edits` | T4 | ✅ | 1 | `doc_apply_edits`, réutilise les helpers `text.py`/`registry.py` ; 13 tests ; index de l'édition fautive préfixé au message (`edit {index}: …`) faute de place dans l'enveloppe générique |
-| J04-P6 | Review J04 | T2 | ⬜ | 0 | `depends_on` étendu à J04-P7 ; relit l'alignement, les notes laissées à l'écart, la 5e puce, la borne d'`add_bookmark` et les 2 formes de `search_and_replace` |
+| J04-P6 | Review J04 | T2 | 🔄 | 1 | `depends_on` étendu à J04-P7 ; relit l'alignement, les notes laissées à l'écart, la 5e puce, la borne d'`add_bookmark` et les 2 formes de `search_and_replace` ; range `c0e98c8..HEAD` |
 
 ## J05 — Styles, thème, format effectif, numérotation, styles de tableau (0/6)
 
