@@ -18,7 +18,12 @@ from __future__ import annotations
 import platform
 import shutil
 
+from mcp.types import ToolAnnotations
+
 from word_document_server.tools.platforms import PLATFORMS
+from word_document_server.tools.v2.registry import ToolSpec
+
+__all__ = ["TOOLS", "doc_capabilities"]
 
 #: Tools with no Linux entry in PLATFORMS are the Word-automation ("live")
 #: ones; everything else is either a plain python-docx tool or a `doc_*` V2
@@ -82,3 +87,12 @@ def doc_capabilities() -> dict[str, object]:
         "tool_count": len(PLATFORMS),
         "note": "Word availability is only known to live tools",
     }
+
+
+TOOLS = [
+    ToolSpec(
+        fn=doc_capabilities,
+        annotations=ToolAnnotations(title="Capabilities", readOnlyHint=True),
+        tags=frozenset({"v2", "read"}),
+    ),
+]

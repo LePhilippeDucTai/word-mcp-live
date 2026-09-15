@@ -30,6 +30,18 @@ is raised with the index of the edit prepended to its message, its `code`
 (D-022) kept exactly as :mod:`~word_document_server.tools.v2.registry` would
 report it standalone. A locator failure, a range that cannot be applied, bad
 text: all of it leaves the file on disk untouched.
+
+Key validation (D-024)
+-----------------------
+A batch edit is a plain `dict`: unlike a top-level call to `doc_edit_text` or
+`doc_format_range`, it is never checked against that function's signature by
+an MCP schema, so a misspelled key (`content` instead of `text`) would
+otherwise be read by `.get()` as simply absent and silently applied as that
+key's default -- for a `replace`, an empty `text`, erasing the targeted range
+rather than refusing the call. Each entry is checked against the exact key
+set of the tool it is shaped like (:data:`_TEXT_EDIT_KEYS`,
+:data:`_FORMAT_EDIT_KEYS`) before any locator is resolved: an unknown key or a
+missing `locator` raises before anything is read or written.
 """
 
 from __future__ import annotations
@@ -64,6 +76,36 @@ _EDIT_FAILURES: tuple[type[Exception], ...] = (EngineError, OSError, ValueError,
 #: call to `doc_edit_text` is.
 _ACTIONS = frozenset({"replace", "insert", "delete"})
 
+#: The keys a text-edit entry may carry: `doc_edit_text`'s own parameters,
+#: minus `filename` and its own `dry_run`, which this tool takes once for the
+#: whole call. A batch edit is a plain `dict`, never validated against that
+#: signature by an MCP schema the way a top-level call to `doc_edit_text` is
+#: -- so an unrecognized key (a typo, a stray `content` instead of `text`)
+#: must be caught here, before it is silently read as a default by `.get()`.
+_TEXT_EDIT_KEYS = frozenset(
+    {"locator", "action", "text", "start", "end", "track_changes", "author"}
+)
+
+#: The keys a format-edit entry may carry: `doc_format_range`'s own
+#: parameters, minus `filename` and its own `dry_run`.
+_FORMAT_EDIT_KEYS = frozenset({"locator", "patch", "start", "end"})
+
+
+def _check_keys(edit: dict[str, Any], allowed: frozenset[str]) -> None:
+    """Refuse an edit carrying a key outside `allowed`, or missing `locator`.
+
+    Called before either helper reads the payload with `.get()`, which would
+    otherwise treat an unknown key (a typo, `content` instead of `text`) as
+    simply absent and silently apply its default -- see D-024.
+    """
+    unknown = set(edit) - allowed
+    if unknown:
+        raise ValueError(
+            f"unknown key(s) {sorted(unknown)}; this edit accepts {sorted(allowed)}"
+        )
+    if "locator" not in edit:
+        raise ValueError(f"'locator' is required; this edit accepts {sorted(allowed)}")
+
 
 def _named(exc: Exception, index: int) -> Exception:
     """Return `exc` with its message naming the failing edit, its code kept.
@@ -88,6 +130,7 @@ def _apply_text_edit(pkg: DocxPackage, edit: dict[str, Any]) -> dict[str, Any]:
     minus the parts that only make sense for a standalone call (`filename`,
     opening the package, saving).
     """
+    _check_keys(edit, _TEXT_EDIT_KEYS)
     locator = edit.get("locator")
     action = edit.get("action", "replace")
     text = edit.get("text", "")
@@ -149,6 +192,7 @@ def _apply_format_edit(pkg: DocxPackage, edit: dict[str, Any]) -> dict[str, Any]
     :func:`~word_document_server.tools.v2.text.doc_format_range`, minus the
     parts that only make sense for a standalone call.
     """
+    _check_keys(edit, _FORMAT_EDIT_KEYS)
     locator = edit.get("locator")
     patch = edit.get("patch")
     start = edit.get("start")
