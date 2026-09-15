@@ -126,6 +126,6 @@ Tests are marked `libreoffice` (requires a LibreOffice installation) and `charac
 ## Pull Request Guidelines
 
 1. Keep PRs focused — one feature or fix per PR
-2. Update the tool count in `README.md` badges and text if you add/remove tools
+2. After adding or removing a tool, run `uv run python scripts/gen_tools_md.py` — it regenerates `TOOLS.md` and the block between `<!-- tool-counts:start -->` and `<!-- tool-counts:end -->` in `README.md` from the registry — and never edit that block by hand: `uv run python scripts/gen_tools_md.py --check` and `tests/test_docs_sync.py` fail on a stale copy.
 3. Add a changelog entry under `## [Unreleased]` in `CHANGELOG.md`
 4. Test cross-platform tools on at least one platform; live tools require Windows + Word
