@@ -336,13 +336,16 @@ The comment appears in Word's Review panel, anchored to the specified text.
 
 ## Tool Reference
 
-**124 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
+<!-- tool-counts:start -->
+**125 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
 
 | Category | Count |
 |----------|-------|
-| Cross-platform (python-docx) | 80 |
-| Windows Live (COM automation) | 44 |
-| macOS Live (JXA automation) | 40 (of the 44 live tools) |
+| Cross-platform (python-docx) | 75 |
+| V2 semantic engine (`doc_*`, python-docx) | 5 |
+| Windows Live (COM automation) | 45 |
+| macOS Live (JXA automation) | 31 (of the 45 live tools) |
+<!-- tool-counts:end -->
 
 ## Requirements
 

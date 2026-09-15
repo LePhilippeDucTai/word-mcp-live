@@ -7,11 +7,13 @@ Supports multiple transports: stdio, sse, and streamable-http using standalone F
 import os
 import sys
 from dotenv import load_dotenv
-from word_document_server.defaults import DEFAULT_AUTHOR, DEFAULT_INITIALS
 
-# Load environment variables from .env file
+# Load environment variables from .env file before importing anything that
+# reads them at import time (e.g. word_document_server.defaults).
 print("Loading configuration from .env file...", file=sys.stderr)
 load_dotenv()
+from word_document_server.defaults import DEFAULT_AUTHOR, DEFAULT_INITIALS
+
 # Set required environment variable for FastMCP 2.8.1+
 os.environ.setdefault('FASTMCP_LOG_LEVEL', 'INFO')
 from fastmcp import FastMCP
@@ -1080,12 +1082,13 @@ def register_tools():
         autofit_mode: str = "content",
         accept_revisions: bool = False,
         track_changes: bool = False,
+        scrub_orphans: bool = True,
     ):
         return live_tools.word_live_modify_table(
             filename, table_index, operation, row, col, text,
             before_row, before_col, header, cells,
             start_row, start_col, end_row, end_col,
-            autofit_mode, accept_revisions, track_changes,
+            autofit_mode, accept_revisions, track_changes, scrub_orphans,
         )
 
     @mcp.tool(
@@ -1994,7 +1997,7 @@ def run_server():
         print("\nShutting down server...", file=sys.stderr)
     except Exception as e:
         print(f"Error starting server: {e}", file=sys.stderr)
-        if config['debug']:
+        if config.get('debug', False):
             import traceback
             traceback.print_exc()
         sys.exit(1)
