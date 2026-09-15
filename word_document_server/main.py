@@ -35,6 +35,7 @@ from word_document_server.tools import (
 )
 from word_document_server.tools.content_tools import replace_paragraph_block_below_header_tool
 from word_document_server.tools.content_tools import replace_block_between_manual_anchors_tool
+from word_document_server.tools.v2.registry import register_v2_tools
 
 def get_transport_config():
     """
@@ -1933,6 +1934,12 @@ def register_tools():
     def verify_document(filename: str, password: str = None):
         """Verify document protection and/or digital signature."""
         return protection_tools.verify_document(filename, password)
+
+    # --- V2 semantic tools (doc_*) ---
+    # Discovered from word_document_server/tools/v2/: each module exports a
+    # TOOLS list, and the registry derives name, schema and description from the
+    # function itself.  Adding a V2 tool never touches this file.
+    register_v2_tools(mcp)
 
 
 def run_server():
