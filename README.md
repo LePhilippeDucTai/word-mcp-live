@@ -171,12 +171,12 @@ tool counts as macOS-capable only when its macOS branch reaches a real implement
 a stub — the exact split is in [TOOLS.md](TOOLS.md).
 
 <!-- tool-counts:start -->
-**136 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
+**137 tools** across two modes — see the [complete tool reference](TOOLS.md) for details.
 
 | Category | Count |
 |----------|-------|
 | Cross-platform (python-docx) | 75 |
-| V2 semantic engine (`doc_*`, python-docx) | 16 |
+| V2 semantic engine (`doc_*`, python-docx) | 17 |
 | Windows Live (COM automation) | 45 |
 | macOS Live (JXA automation) | 31 (of the 45 live tools) |
 <!-- tool-counts:end -->

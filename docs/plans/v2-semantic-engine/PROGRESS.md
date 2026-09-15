@@ -76,7 +76,7 @@ Updated 2026-09-15 · s8 · base main (fusionnée depuis v2-semantic-engine à l
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
-| J06-P1 | Audit documentaire | T3 | 🔄 | 1 | |
+| J06-P1 | Audit documentaire | T3 | ✅ | 1 | `audit(pkg)` : 12 contrôles en lecture seule d'ordre fixe (`FINDING_KINDS`), index et coordonnées de cellule pris de `find._v2_index_map` et `styles._cell_locators` (aucun second espace d'index), paragraphe de zone de texte rendu avec `locator=None` ; `w:docDefaults` tenu à part de la chaîne de chaque style ; 41 tests, surtout des cas négatifs ; `effective.py` ni importé ni édité (cascade reconstruite depuis `styles.get_style`, indépendance vis-à-vis de J05-P9) ; 19 findings sans bruit sur `combined`, aucun sur `simple` ; enregistré par l'orchestrateur après merge (`_V2_TOOLS`, docstring « sixteen » → « seventeen », TOOLS.md/README régénérés) : 136 → 137 outils, 17 `doc_*` ; suite complète 1791 passed sur la base |
 | J06-P2 | Comparaison sémantique | T4 | ✅ | 1 | déplacement pur de `snapshot`/`diff` vers `engine/compare.py`, `tests/support/snapshot.py` réexporte (aucune API changée, la garde `is_empty()` tient) ; `doc_compare` ; 56 passed sur l'acceptation rejouée sur la base ; enregistré par l'orchestrateur après merge (`_V2_TOOLS`, docstring « fifteen » → « sixteen », TOOLS.md/README régénérés) : 135 → 136 outils, 16 `doc_*` |
 | J06-P3 | Scénarios de bout en bout et documentation | T4 | ⬜ | 0 | |
 | J06-P4 | Review J06 | T2 | ⬜ | 0 | |
