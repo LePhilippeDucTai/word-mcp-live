@@ -173,12 +173,15 @@ def doc_compare(filename_a: str, filename_b: str) -> dict[str, Any]:
         total that differs -- comments, comment references, revisions,
         bookmarks, fields, hyperlinks, footnotes and endnotes.
     """
+    pkg_a = DocxPackage.open(filename_a)
+    pkg_b = DocxPackage.open(filename_b)
+
     before = engine_snapshot(filename_a)
     after = engine_snapshot(filename_b)
     delta = engine_diff(before, after)
 
-    positions_a = _v2_positions(DocxPackage.open(filename_a))
-    positions_b = _v2_positions(DocxPackage.open(filename_b))
+    positions_a = _v2_positions(pkg_a)
+    positions_b = _v2_positions(pkg_b)
 
     return {
         "identical": delta.is_empty(),

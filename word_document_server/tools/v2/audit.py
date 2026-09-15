@@ -41,7 +41,7 @@ def doc_audit(filename: str) -> dict[str, Any]:
     document is valid and says something a reader will misread. `info` is an
     inventory.
 
-    The twelve checks:
+    Fifteen finding kinds across twelve checks:
 
     - `heading_like_paragraph`: short, emphasised, and no heading style, so the
       navigation pane and every table of contents ignore it.

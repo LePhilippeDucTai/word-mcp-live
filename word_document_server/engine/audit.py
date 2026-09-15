@@ -925,11 +925,20 @@ def _referenced_styles(state: _Audit) -> set[str]:
 
     Three kinds of pointer count: a story that applies the style
     (``w:pStyle``/``w:rStyle``/``w:tblStyle``), another style that inherits from
-    it or links to it, and a numbering level that imposes it.
+    it or links to it, and a numbering level that imposes it. A comment is not
+    a story (:meth:`~word_document_server.engine.package.DocxPackage.stories`
+    never reports ``word/comments.xml``), but a style applied only inside one
+    is not unused either, so its root is scanned the same way.
     """
     referenced: set[str] = set()
     for place in state.places:
         for element in place.root.iter(_W_PSTYLE, _W_RSTYLE, _W_TBL_STYLE):
+            value = element.get(_W_VAL)
+            if value is not None:
+                referenced.add(value)
+    comments_root = _comments_root(state.pkg)
+    if comments_root is not None:
+        for element in comments_root.iter(_W_PSTYLE, _W_RSTYLE, _W_TBL_STYLE):
             value = element.get(_W_VAL)
             if value is not None:
                 referenced.add(value)
@@ -1144,10 +1153,11 @@ _CHECKS = (
 def audit(pkg: DocxPackage) -> list[Finding]:
     """Audit `pkg` and return everything the checks have to say about it.
 
-    Twelve checks run, in the order of :data:`FINDING_KINDS`, and each walks the
-    document in story then document order, so two audits of the same bytes
-    return the same list in the same order.  An empty list means every check
-    passed, not that the document was not read.
+    Fifteen finding kinds across twelve checks run, in the order of
+    :data:`FINDING_KINDS`, and each walks the document in story then document
+    order, so two audits of the same bytes return the same list in the same
+    order.  An empty list means every check passed, not that the document was
+    not read.
 
     What is checked, by family:
 

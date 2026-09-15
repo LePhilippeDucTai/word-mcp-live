@@ -496,6 +496,29 @@ def test_an_unused_builtin_style_is_not_reported() -> None:
     assert _of_kind(audit(_pkg("simple")), "unused_custom_style") == []
 
 
+def test_a_style_applied_only_in_a_comment_is_not_unused() -> None:
+    # A comment is not a story (DocxPackage.stories() never reports
+    # word/comments.xml), but a style applied only inside one is still applied.
+    used_only_in_comment = """
+    <w:style w:type="paragraph" w:customStyle="1" w:styleId="FixtureCommentStyle">
+      <w:name w:val="Fixture Comment Style"/>
+    </w:style>
+    """
+    pkg = _append_styles(_pkg("comments"), _UNUSED_STYLE, used_only_in_comment)
+    comments_root = pkg.root_of(pkg.part("/word/comments.xml"))
+    comment = comments_root.find(qn("w:comment"))
+    assert comment is not None
+    comment.append(
+        _fragment(
+            '<w:p><w:pPr><w:pStyle w:val="FixtureCommentStyle"/></w:pPr>'
+            "<w:r><w:t>Styled inside a comment.</w:t></w:r></w:p>"
+        )
+    )
+    unused = {finding.data["style_id"] for finding in _of_kind(audit(pkg), "unused_custom_style")}
+    assert "FixtureUnused" in unused
+    assert "FixtureCommentStyle" not in unused
+
+
 def test_style_names_that_differ_only_by_case_and_punctuation_are_reported() -> None:
     twin = """
     <w:style w:type="paragraph" w:customStyle="1" w:styleId="FixtureTwin">

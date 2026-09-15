@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -192,7 +193,10 @@ def test_the_full_agent_loop_on_combined(fixture_docx, tmp_path):
 
     # No part outside the ones these six edits necessarily touch was rewritten.
     assert comparison["parts"]["removed"] == []
-    untouched_parts = {"word/styles.xml", "word/theme1.xml", "word/settings.xml"}
+    untouched_parts = {"word/styles.xml", "word/theme/theme1.xml", "word/settings.xml"}
+    with zipfile.ZipFile(path) as archive:
+        package_names = set(archive.namelist())
+    assert untouched_parts <= package_names, untouched_parts - package_names
     assert not untouched_parts & set(comparison["parts"]["changed"])
 
     # validate_package: no dangling relationship either way.
