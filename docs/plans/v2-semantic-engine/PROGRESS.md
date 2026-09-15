@@ -1,6 +1,6 @@
 # PROGRESS — v2-semantic-engine
 
-Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
+Updated 2026-09-15 · s8 · base v2-semantic-engine (→ `main` à la clôture de s8, D-026) · ⬜ todo 🔄 wip ✅ done ❌ failed ⏸ blocked ⏭ dropped
 
 ## J01 — Harnais de fidélité documentaire (7/7)
 
@@ -57,7 +57,7 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J04-P5 | Lot atomique `doc_apply_edits` | T4 | ✅ | 1 | `doc_apply_edits`, réutilise les helpers `text.py`/`registry.py` ; 13 tests ; index de l'édition fautive préfixé au message (`edit {index}: …`) faute de place dans l'enveloppe générique |
 | J04-P6 | Review J04 | T2 | ✅ | 1 | round 1 sans finding bloquant (status: done) ; 20 acceptations + 4 Checks verts, 1396 passed / 1 xfailed, build et `uv lock --check` verts ; 2 should-fix (`doc_capabilities` jamais enregistré ; `doc_apply_edits` efface un paragraphe en silence sur une clé de charge mal orthographiée — data loss prouvé par exécution) + 2 optional (`highlight_color` hors 0-16 avale l'erreur ; enveloppe d'erreur générique du wrapper construite avant capture du TypeError applicatif) → D-024 |
 
-## J05 — Styles, thème, format effectif, numérotation, styles de tableau (0/7)
+## J05 — Styles, thème, format effectif, numérotation, styles de tableau (0/8)
 
 | Part | Title | Tier | Status | Tries | Note |
 |------|-------|------|--------|-------|------|
@@ -67,7 +67,8 @@ Updated 2026-09-10 · s6 · base v2-semantic-engine · ⬜ todo 🔄 wip ✅ don
 | J05-P3 | Écriture de styles paragraphe et caractère | T3 | ⬜ | 0 | |
 | J05-P4 | Numérotation | T3 | ⬜ | 0 | D-021 embarquée : message déterministe d'`insert_line_or_paragraph_near_text` |
 | J05-P5 | Styles de tableau | T4 | ⬜ | 0 | |
-| J05-P6 | Review J05 | T2 | ⬜ | 0 | `depends_on` étendu à J05-P0 ; relit D-024 et D-021 |
+| J05-P7 | Réécriture complète du README sur le MCP réel | T3 | ⬜ | 0 | D-025 (user) ; `depends_on: [J05-P0]`, `README.md` seul ; bloc `tool-counts` et trailer `mcp-name` jamais édités à la main |
+| J05-P6 | Review J05 | T2 | ⬜ | 0 | `depends_on` étendu à J05-P0 et J05-P7 ; relit D-024, D-021 et le README réécrit |
 
 ## J06 — Audit, comparaison et validation de bout en bout (0/4)
 

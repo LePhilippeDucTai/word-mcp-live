@@ -1,6 +1,6 @@
 # J05 — Styles, thème, format effectif, numérotation, styles de tableau
 
-Goal: Le style, le thème et la numérotation deviennent des objets de premier rang du moteur : lecture des quatre familles avec chaîne d'héritage et références de thème, format effectif avec provenance, création et mise à jour de styles paragraphe et caractère, listes correctement définies dans `numbering.xml`, application de styles de tableau existants. Ouvre par la corrective D-024 : `doc_capabilities` enregistré, charges de `doc_apply_edits` validées ; D-021 (réponse déterministe de `insert_line_or_paragraph_near_text`) embarquée dans J05-P4.
+Goal: Le style, le thème et la numérotation deviennent des objets de premier rang du moteur : lecture des quatre familles avec chaîne d'héritage et références de thème, format effectif avec provenance, création et mise à jour de styles paragraphe et caractère, listes correctement définies dans `numbering.xml`, application de styles de tableau existants. Ouvre par la corrective D-024 : `doc_capabilities` enregistré, charges de `doc_apply_edits` validées ; D-021 (réponse déterministe de `insert_line_or_paragraph_near_text`) embarquée dans J05-P4 ; se clôt par la réécriture complète du README sur le MCP réellement implémenté (D-025, J05-P7), relue par la revue.
 Depends on: J04 · Orchestrator: opus/high
 
 ## J05-P0 — Correctif D-024 : `doc_capabilities` enregistré, charges de `doc_apply_edits` validées
@@ -167,6 +167,31 @@ acceptance:
 ### Context
 `engine/styles.py`. ECMA-376 §17.4.63 et §17.4.56.
 
+## J05-P7 — Réécriture complète du README sur le MCP réel
+
+```yaml
+id: J05-P7
+kind: implement
+tier: T3
+size: M
+depends_on: [J05-P0]
+files:
+  - README.md
+acceptance:
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run python scripts/gen_tools_md.py --check"
+  - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/test_docs_sync.py -q"
+  - "grep -qF '<!-- tool-counts:start -->' README.md && grep -qF '<!-- tool-counts:end -->' README.md && [ \"$(grep -v '^[[:space:]]*$' README.md | tail -n 1)\" = '<!-- mcp-name: io.github.ykarapazar/word-mcp-live -->' ]"
+  - "grep -q 'doc_inspect' README.md && grep -q 'doc_find' README.md && grep -q 'doc_edit_text' README.md && grep -q 'doc_format_range' README.md && grep -q 'doc_apply_edits' README.md && grep -q 'doc_capabilities' README.md && grep -q 'word_document_server/engine' README.md && ! grep -q '124 tools' README.md"
+```
+
+### Scope
+D-025 (user, s8). `README.md` (396 lignes) est pour l'essentiel le texte hérité de l'amont (`io.github.ykarapazar/word-mcp-live`) : pitch « live editing », `124 tools` en dur, installation `uvx word-mcp-live` et deeplinks Cursor/VS Code (paquet PyPI de l'amont, sans le moteur), image `ghcr.io`, vidéo, Star History ; rien sur `engine/`, la surface V2, le harnais ni la non-dégradation, sujet réel du dépôt depuis J01. Réécriture complète, en anglais, contre le code présent dans l'arbre au moment de la rédaction : aucune affirmation qui n'y soit vérifiable (un outil cité existe dans `mcp.list_tools()`, une garantie citée a son test) ; pas de badge de CI — le seul workflow, `.github/workflows/publish.yml`, publie sur PyPI à la release et ne teste rien, et le plan interdit d'en ajouter ; le paquet PyPI de l'amont n'est pas présenté comme ce serveur.
+Contenu : (1) ce qu'est le serveur — MCP de manipulation de documents Word pour agents, cœur OOXML pur (Linux, sans Word) ; (2) architecture en couches réelle de `word_document_server/engine/` d'après les modules présents (`package` → `textmodel` → `ranges` → `format` → `find`/`revisions`/`locators`/`inspect`/`merge` ; pas la liste cible du PLAN.md), politique de texte (visible, caché, opaque, marqueurs), erreurs typées ; (3) les trois familles telles que `tools/platforms.py` et `TOOLS.md` les classent : outils cross-platform historiques migrés sur le moteur (noms, paramètres et formats de retour inchangés ; fichier fermé), surface V2 `doc_*` sans état (locators `paragraph`/`find`/`bookmark`/`heading`/`table` + `story`/`expect_text` de `engine/locators.py`, `dry_run`, rapport `{status, dry_run, changes, warnings}` ou `{status: "error", code, message}`, lot atomique `doc_apply_edits`, `doc_capabilities`), outils live COM/JXA dépendants de la plateforme (Windows + macOS / Windows seul, comptes du bloc généré) ; un exemple d'appel `doc_*` réel avec sa réponse, rejoué avant d'être écrit ; (4) garanties de fidélité (texte et formatage hors plage inchangés, signets et plages de commentaire conservés, champs atomiques, `w:del` jamais modifié, parties non ciblées identiques, ids d'annotation uniques, ordre de schéma, sauvegarde atomique) et écarts assumés (champ imbriqué D-005, outils de notes sur `doc.paragraphs` D-016, conteneur vidé D-009, changements de comportement listés dans `CHANGELOG.md` `[Unreleased]`) ; (5) harnais : fixtures générées (`tests/fixtures/builders.py`, ODT LibreOffice), instantanés canoniques (`tests/support/snapshot.py`), validateur de paquet (`tests/support/package_check.py`), caractérisation (`tests/characterization`), LibreOffice optionnel ; (6) installation depuis le dépôt (`uv sync` ou `pip install -e .`, entrée `word_mcp_server` de `pyproject.toml [project.scripts]`) et configuration MCP (commande du type `uv run --directory <clone> word_mcp_server`, vérifiée ; `MCP_AUTHOR`/`MCP_AUTHOR_INITIALS` lues dans `defaults.py:5-6`, `MCP_TRANSPORT`/`MCP_HOST`/`MCP_PORT` dans `main.py:59-70`) ; (7) renvois vers `TOOLS.md` (liste exhaustive), `CHANGELOG.md`, `CONTRIBUTING.md`, `RENDER_DEPLOYMENT.md`, `PRIVACY.md`, `LICENSE`.
+Partie générée : le bloc `<!-- tool-counts:start -->` … `<!-- tool-counts:end -->` (`scripts/gen_tools_md.py:38-39,161-195`) n'est **jamais** édité à la main — conservé tel quel ou régénéré par `uv run python scripts/gen_tools_md.py` (qui réécrit aussi `TOOLS.md`, hors `files` : si `--check` est rouge sur la base avant toute édition, rapport `blocked`, la dérive se corrige sur la base, pas ici) ; le trailer `<!-- mcp-name: io.github.ykarapazar/word-mcp-live -->` reste la dernière ligne (registre MCP, `server.json`). Seul `README.md` change : pas de renommage du paquet, `pyproject.toml`, `TOOLS.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `RENDER_DEPLOYMENT.md` intacts. Les outils de J05-P1..P5 ne sont décrits que s'ils sont dans l'arbre ; J06-P3 complète le README avec ceux de J05 et J06.
+
+### Context
+`README.md:1-58` (en-tête, badges et pitch hérités), `:60-212` (installation `uvx`, deeplinks), `:216-245` (« Two Modes »), `:247-257` (variables), `:337-348` (bloc généré), `:396` (trailer) ; `scripts/gen_tools_md.py:38-39` (marqueurs), `:161-185` (`render_readme_counts`), `:187-195` (`apply_readme_counts`, `ValueError` « README.md is missing … markers ») ; `tests/test_docs_sync.py` (`test_check_flag_passes_on_the_committed_docs`, `test_readme_keeps_its_tool_count_markers`) ; `tools/platforms.py:1-33` (trois familles) ; `TOOLS.md:87-98` (section `doc_*`) ; `tools/v2/registry.py` (enveloppe de rapport) ; `engine/locators.py:13-28,132-143` ; PLAN.md `## Architecture` et `## Risks` (garanties, écarts D-005/D-009/D-016). Vérifié le 2026-09-15 : 396 lignes, marqueurs lignes 339/348, trailer ligne 396, `gen_tools_md.py --check` → 0 sur la base (125 outils ; 126 après J05-P0) ; la 4e acceptation est rouge sur le README actuel.
+
 ## J05-P6 — Review J05
 
 ```yaml
@@ -174,7 +199,7 @@ id: J05-P6
 kind: review
 tier: T2
 size: S
-depends_on: [J05-P0, J05-P1, J05-P2, J05-P3, J05-P4, J05-P5]
+depends_on: [J05-P0, J05-P1, J05-P2, J05-P3, J05-P4, J05-P5, J05-P7]
 files: []
 acceptance:
   - "PATH=\"$HOME/.local/bin:$PATH\" uv run pytest tests/engine tests/tools tests/characterization -q --timeout=60"
@@ -187,3 +212,4 @@ acceptance:
 ### Scope
 Review the merged milestone diff with verify-before-done, code-review, test-design. Report; change nothing.
 Relit aussi J05-P0 (corrective D-024) : `doc_capabilities` dans `mcp.list_tools()`, `_V2_TOOLS`, `TOOLS.md` et README régénérés ; listes blanches de `doc_apply_edits` alignées sur les signatures de `doc_edit_text` et `doc_format_range`, la charge de la revue refusée sans écriture ; et D-021 dans J05-P4 : réponse de `insert_line_or_paragraph_near_text` sans objet Python interpolé.
+Relit aussi le README réécrit par J05-P7 (D-025) contre le code réel : aucun outil décrit qui n'est pas dans `mcp.list_tools()`, aucune garantie, option (`dry_run`, locators) ou commande d'installation qui ne soit vérifiable dans l'arbre, aucune promesse non tenue ni texte hérité de l'amont qui décrit un autre serveur ; bloc de compteurs et trailer intacts (`gen_tools_md.py --check`, `tests/test_docs_sync.py`).

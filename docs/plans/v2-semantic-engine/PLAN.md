@@ -1,11 +1,12 @@
 # PLAN — v2-semantic-engine
 
 Goal: Faire de word-mcp-live un moteur de manipulation sémantique de documents Word pour agents IA : un cœur OOXML pur (Linux, sans Word) qui garantit la non-dégradation (styles, relations, champs, signets, commentaires, révisions, numérotation, mise en page), les outils existants migrés dessus sans rupture d'API, une surface V2 `doc_*` (adressage sans état, dry-run, styles/thème, audit, comparaison), les outils live COM/JXA préservés.
-Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 2026-09-09 · Planned with: best/max
+Base branch: main · Remote: origin · Language: fr · Created: 2026-09-09 · Planned with: best/max
+Base note (2026-09-15, D-026) : les sessions s1–s8 ont travaillé sur `v2-semantic-engine`, fusionnée dans `main` à la clôture de s8 (`git rev-list --left-right --count main...v2-semantic-engine` → `0 94`, sans divergence) ; `main` est la base à partir de s9.
 
 ## Scope
 
-- In: paquet `word_document_server/engine/` ; harnais de tests (fixtures générées python-docx+lxml et LibreOffice, instantanés canoniques, validateur de paquet, caractérisation) ; migration des outils cross-platform texte, révisions, commentaires, hyperliens, formatage, TOC, fusion, en-têtes ; retrait du monkey-patch de sauvegarde ; écritures atomiques ; outils `doc_*` (inspect, find, edit_text, format_range, apply_edits, capabilities, styles, effective format, list, table style, audit, compare) ; TOOLS.md et compteurs README générés ; garde-fous de dérive ; trois plantages macOS prouvés par lecture.
+- In: paquet `word_document_server/engine/` ; harnais de tests (fixtures générées python-docx+lxml et LibreOffice, instantanés canoniques, validateur de paquet, caractérisation) ; migration des outils cross-platform texte, révisions, commentaires, hyperliens, formatage, TOC, fusion, en-têtes ; retrait du monkey-patch de sauvegarde ; écritures atomiques ; outils `doc_*` (inspect, find, edit_text, format_range, apply_edits, capabilities, styles, effective format, list, table style, audit, compare) ; TOOLS.md et compteurs README générés ; README réécrit sur le MCP réel (D-025) ; garde-fous de dérive ; trois plantages macOS prouvés par lecture.
 - Out: tout autre changement des modules COM/JXA ; outils de notes de bas de page (conservés tels quels) ; protection, signature, sidecar `.protection` ; création de styles de tableau ; normalisation automatique ; publication PyPI et versionnage ; CI hébergée (validation locale uniquement).
 
 ## Architecture
@@ -34,6 +35,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 - Piège d'instrument (D-007) : `Diff.is_empty` (`tests/support/snapshot.py`) est une **méthode** — `assert delta.is_empty` est toujours vrai et a masqué le défaut ci-dessus sur 19 fixtures ; écrire `is_empty()` partout, garde grep posée par J02-P8 sur les porteurs de `Diff` (`difference`, `delta`, `diff(...)`). `Pieces.is_empty` (`engine/ranges.py`) est, elle, une propriété.
 - Lint partiel : `[tool.ruff] include` ne couvre que `word_document_server/engine/**`, `tests/**`, `scripts/**` ; un `ruff check .` vert ne dit rien de `word_document_server/tools|core|utils` (95 RUF013 et 9 W605 sur `live_tools.py` seul), que J03 réécrit.
 - Piège d'instrument (D-024) : `discover_tool_specs()` (`tools/v2/registry.py`) ignore en silence tout module de `tools/v2/` sans liste `TOOLS`, et `TOOLS.md`, les compteurs README et `test_registry_consistency` dérivent du registre — `doc_capabilities` (J04-P3) est resté non enregistré, invisible de `gen_tools_md.py --check` comme des tests, jusqu'à la revue J04-P6. J05-P0 l'enregistre et pose `test_every_v2_module_exports_tools` ; chaque module `tools/v2/*.py` ajouté par J05-P1..P5 et J06 exporte `TOOLS` et entre ses noms dans `_V2_TOOLS` (`tools/platforms.py`), la revue le vérifie par `mcp.list_tools()`. Même revue : `doc_apply_edits` ne validait pas les clés de ses charges (une faute de clé effaçait la plage visée et sauvegardait en `status: ok`) — les listes blanches de J05-P0 sont l'unique contrôle, alignées sur les signatures de `doc_edit_text`/`doc_format_range` ; un paramètre ajouté à l'un se reporte dans l'autre.
+- Piège de génération (D-025) : `README.md` est en partie généré — le bloc entre `<!-- tool-counts:start -->` et `<!-- tool-counts:end -->` est écrit par `scripts/gen_tools_md.py` (`apply_readme_counts`, `:187-195`) et le fichier se termine par le trailer `<!-- mcp-name: io.github.ykarapazar/word-mcp-live -->` (registre MCP, `server.json`). Une réécriture qui perd un marqueur fait échouer `gen_tools_md.py --check` (exit 1, « README.md is missing … markers ») et `tests/test_docs_sync.py` ; le bloc ne s'édite jamais à la main. Toute part qui touche le README (J05-P0, J05-P7, J06-P3) écrit autour des marqueurs et garde le trailer en dernière ligne ; les compteurs suivent le registre, donc un module `tools/v2` fusionné sans régénération rend `--check` rouge sur la base — se corrige par régénération sur la base (comme après J04-P5), jamais dans une part qui n'a pas `TOOLS.md` dans ses `files`.
 
 ## Checks
 
@@ -50,7 +52,7 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 | J02 | Cœur OOXML : paquet, flux de texte, plages, révisions | 10 | J01 | opus/high | jalons/J02-coeur-ooxml.md |
 | J03 | Migration des outils existants sur le cœur | 11 | J02 | opus/high | jalons/J03-migration-outils.md |
 | J04 | Surface V2 : adressage, inspection, dry-run, capacités, docs | 7 | J03 | opus/high | jalons/J04-surface-v2.md |
-| J05 | Styles, thème, format effectif, numérotation, styles de tableau | 7 | J04 | opus/high | jalons/J05-styles-theme-numerotation.md |
+| J05 | Styles, thème, format effectif, numérotation, styles de tableau | 8 | J04 | opus/high | jalons/J05-styles-theme-numerotation.md |
 | J06 | Audit, comparaison et validation de bout en bout | 4 | J05 | opus/high | jalons/J06-audit-validation.md |
 
 ## Tiers
@@ -69,7 +71,8 @@ Base branch: v2-semantic-engine · Remote: origin · Language: fr · Created: 20
 - Writers: orchestrator → PROGRESS.md, DECISION.md, DECISIONS_LOG.md, LONG_TERM_RECO.md; planner → PLAN.md, jalons/; workers → source only.
 - Every milestone ends with a `kind: review` part run by philippele-skills:reviewer; the reviewer also runs the Checks and reads Risks.
 - Wave cap: 4 parts in flight; review, size L, and T1 parts run alone.
-- Git: workers commit in their worktree; one merge commit per validated part `<id>: <title>`; push v2-semantic-engine to origin at session end (none when Remote is none); never force, never amend.
+- Git: workers commit in their worktree; one `--no-ff` merge commit per validated part `<id>: <title>` onto `main`; push `main` to origin at session end (none when Remote is none); never force, never amend. Sessions s1–s8 merged onto and pushed `v2-semantic-engine`, merged into `main` at the end of s8 (D-026).
+- Worktrees: from s9, `isolation: "worktree"` of the harness, which branches from the repository's default branch — now `main`, the base. s1–s8 used hand-made worktrees (`git worktree add -b worktree-<id> .claude/worktrees/<id> v2-semantic-engine`, workers dispatched without `isolation`, D-003) because `isolation: "worktree"` ignored `worktree.baseRef` and branched from a `main` that lacked the plan's commits; that exception ends with D-026 and its trace stays in DECISIONS_LOG.md.
 - Failed part: try 2 at the same tier with the failure evidence, try 3 one tier higher, then ❌ and a queued decision; a `blocked` report or a first merge conflict does not count.
 - Plan updates: only when remaining parts are invalidated or the user asks for a change; planner rewrites files in place; ids never renumbered; a dropped part is ⏭ and its dependents get their Scope rewritten.
 - Code, docstrings, descriptions d'outils, TOOLS.md et CHANGELOG en anglais ; documents de plan en français. Aucun workflow GitHub Actions n'est ajouté.

@@ -72,7 +72,7 @@ acceptance:
 
 ### Scope
 `test_agent_flows.py` sur `combined` et les fixtures LibreOffice : `doc_inspect` → `doc_find` → `doc_edit_text` en révision → commentaire → style de caractère → `doc_apply_list` → `doc_apply_table_style` → `doc_audit` → `doc_compare` avec l'original (seuls les changements voulus) → `validate_package` vide → ouverture LibreOffice (skip si absent) ; un scénario par refus (chevauchement de champ, ancre périmée, recherche ambiguë, révision non supportée).
-README : table des modes honnête (Linux, Windows, macOS d'après `PLATFORMS`), section outils V2, compteurs générés ; CHANGELOG `[Unreleased]` couvrant J01 à J06 ; CONTRIBUTING : conventions moteur (pas de mutation via `paragraph.runs`, jamais de `Document()` de reconstruction, sauvegardes atomiques, erreurs typées, enregistrement `tools/v2`) ; TOOLS.md régénéré.
+README (réécrit par J05-P7, D-025 ; marqueurs de compteurs et trailer `<!-- mcp-name: … -->` conservés) : y ajouter les outils de J05 et J06 (styles, format effectif, numérotation, styles de tableau, audit, comparaison) et les scénarios de bout en bout, compteurs régénérés, table des modes toujours d'après `PLATFORMS` ; CHANGELOG `[Unreleased]` couvrant J01 à J06 ; CONTRIBUTING : conventions moteur (pas de mutation via `paragraph.runs`, jamais de `Document()` de reconstruction, sauvegardes atomiques, erreurs typées, enregistrement `tools/v2`) ; TOOLS.md régénéré.
 
 ### Context
 `scripts/gen_tools_md.py`, `tests/support/libreoffice.py`, `docs/audit/destructive-ops.md` (à mettre à jour : outils corrigés).
